@@ -11,7 +11,7 @@
 
 ClawManager 是一款运行在 Windows 上的 OpenClaw 图形化管理工具，帮助你一键完成 WSL、Ubuntu、OpenClaw 的安装与管理，告别繁琐的命令行操作。
 
-![ClawManager Screenshot](./assets/screenshot.png)
+![](img/screen.png)
 
 </div>
 
