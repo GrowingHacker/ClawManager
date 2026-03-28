@@ -1,0 +1,417 @@
+<!-- ── 自定义重启提示模态框 ── -->
+<teleport to="body">
+  <transition name="modal-fade">
+    <div v-if="showRestartModal" class="modal-backdrop" @click.self="showRestartModal = false">
+      <div class="modal-box">
+        <div class="modal-scan-line"></div>
+        <div class="modal-corner modal-corner-tl"></div>
+        <div class="modal-corner modal-corner-br"></div>
+
+        <div class="modal-header">
+          <div class="modal-icon-wrap">
+            <span class="modal-icon">⚡</span>
+          </div>
+          <div>
+            <div class="modal-title">系统重启必要</div>
+            <div class="modal-subtitle">// WSL_FOUNDATION_ENABLED · ACTION_REQUIRED</div>
+          </div>
+        </div>
+
+        <div class="modal-body">
+          <div class="modal-line">
+            <span class="modal-line-label">状态</span>
+            <span class="modal-line-value success">WSL 基础环境已成功开启</span>
+          </div>
+          <div class="modal-line">
+            <span class="modal-line-label">操作</span>
+            <span class="modal-line-value warn">您现在必须重启电脑</span>
+          </div>
+          <div class="modal-desc">
+            重启后重新打开本软件，将自动引导您通过<br>国内镜像安装 Ubuntu 发行版。
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-primary btn-large modal-confirm-btn" @click="showRestartModal = false">
+            <span>确认</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </transition>
+</teleport>
+
+<div class="waiting-overlay" v-if="loadingWsl">
+  <div class="waiting-modal">
+    <div class="spinner"></div>
+    <h3>正在{{ wslAction === 'start' ? '启动' : '关闭' }} WSL</h3>
+    <p v-if="wslAction === 'stop'">正在关闭 WSL 服务，请稍候...</p>
+    <p v-else-if="wslPhase === 'wsl'">正在启动 WSL 服务...</p>
+    <p v-else-if="wslPhase === 'openclaw'">WSL 已启动，正在重启 OpenClaw Gateway...</p>
+    <p v-else>正在处理...</p>
+  </div>
+</div>
+
+<div>
+  <div class="header-with-action">
+    <div>
+      <h1>设置与环境检测</h1>
+      <p class="subtitle">// 检查 Windows 系统环境是否准备就绪</p>
+    </div>
+  </div>
+
+  <!-- WSL 卡片 -->
+  <div class="card status-card"
+    :class="sysState.wsl.installed ? (wslRunning ? 'card-running' : 'card-ready') : 'card-stopped'">
+    <h2>01 · WSL (Windows Subsystem for Linux)</h2>
+    <div class="status-row">
+      <div class="status-label">
+        <!-- 呼吸灯 -->
+        <div class="status-dot-wrap">
+          <span class="status-dot"
+            :class="sysState.wsl.installed ? (wslRunning ? 'dot-running' : 'dot-ready') : 'dot-stopped'">
+          </span>
+        </div>
+        <div>
+          <div style="font-weight: 500; color: #fff; margin-bottom: 0.25rem;">WSL 2 支持</div>
+          <div style="font-size: 0.82rem;" class="text-muted">
+            {{ sysState.wsl.installed ? sysState.wsl.version : '未安装或未启用。需要安装以便运行 Linux 容器。' }}
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <span v-if="sysState.wsl.installed && sysState.wsl.distroInstalled" class="badge" :class="wslRunning ? 'running' : 'success'">
+          {{ wslRunning ? '运行中' : '已就绪' }}
+        </span>
+        <button v-if="sysState.wsl.installed && sysState.wsl.distroInstalled && !wslRunning" class="btn btn-primary" @click="runWsl"
+          :disabled="loadingWsl">
+          {{ loadingWsl ? '启动中...' : '运行 WSL 2' }}
+        </button>
+        <button v-if="sysState.wsl.installed && sysState.wsl.distroInstalled && wslRunning" class="btn btn-danger" @click="stopWsl"
+          :disabled="loadingWsl">
+          {{ loadingWsl ? '关闭中...' : '关闭 WSL' }}
+        </button>
+        <button v-if="sysState.wsl.installed && !sysState.wsl.distroInstalled" class="btn btn-primary" @click="installUbuntu"
+          :disabled="isInstallingDistro">
+          {{ isInstallingDistro ? '安装中...' : '安装 Ubuntu (镜像加速)' }}
+        </button>
+        <button v-if="!sysState.wsl.installed" class="btn btn-primary" @click="installWsl" :disabled="loadingWsl">
+          安装 WSL 基础
+        </button>
+      </div>
+    </div>
+
+    <!-- WSL 发行版安装进度条 -->
+    <div v-if="isInstallingDistro" class="mt-4">
+      <div style="display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 0.5rem;">
+        <span class="text-muted">{{ wslInstallStatus }}</span>
+        <span class="badge muted">{{ Math.round(wslDownloadProgress) }}%</span>
+      </div>
+      <div class="install-progress-bar">
+        <div class="install-progress-fill" :style="{ width: wslDownloadProgress + '%' }"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OpenClaw 卡片 -->
+  <div class="card status-card"
+    :class="isInstallingClaw ? 'card-installing' : (sysState.openclaw.installed ? 'card-ready' : 'card-stopped')">
+    <h2>02 · OpenClaw 核心服务</h2>
+    <div class="status-row">
+      <div class="status-label">
+        <!-- 呼吸灯 -->
+        <div class="status-dot-wrap">
+          <span class="status-dot"
+            :class="isInstallingClaw ? 'dot-installing' : (sysState.openclaw.installed ? 'dot-ready' : 'dot-stopped')">
+          </span>
+        </div>
+        <div>
+          <div style="font-weight: 500; color: #fff; margin-bottom: 0.25rem;">OpenClaw Linux 客户端</div>
+          <div style="font-size: 0.82rem;" class="text-muted">
+            {{ sysState.openclaw.installed ? `已安装 ${sysState.openclaw.version}` : checkingClaw ? '正在检测...' : '未安装。将通过 wsl 命令行自动下载安装。' }}
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <div v-if="sysState.openclaw.installed" style="display: flex; align-items: center; gap: 0.5rem;">
+          <span class="badge success">已就绪</span>
+          <button class="btn btn-danger" @click="uninstallOpenClaw" :disabled="isInstallingClaw" 
+            style="padding: 0.2rem 0.5rem; font-size: 0.7rem; height: auto;">卸载</button>
+        </div>
+        <span v-else-if="checkingClaw" class="badge muted">检测中...</span>
+        <button v-else class="btn btn-primary" @click="installOpenClaw"
+          :disabled="!sysState.wsl.installed || isInstallingClaw">安装 OpenClaw</button>
+      </div>
+    </div>
+
+    <!-- 安装进度条（安装中显示） -->
+    <div v-if="isInstallingClaw" class="install-progress-bar">
+      <div class="install-progress-fill"></div>
+    </div>
+
+    <!-- 终端日志 -->
+    <div v-if="isInstallingClaw || clawLogs.length > 0" class="terminal mt-4">
+      <div v-for="(log, i) in clawLogs" :key="i" class="terminal-line" :class="log.type">
+        {{ log.text }}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script page-setup>
+  const { ref, onMounted, onUnmounted } = Vue
+
+  function pageSetup(deps) {
+    const showRestartModal = ref(false)
+    const loadingWsl = ref(false)
+    const wslAction = ref('start')
+    const wslPhase = ref('wsl')
+    const wslRunning = ref(false)
+    const checkingClaw = ref(false)
+    const isInstallingClaw = ref(false)
+    const isUninstallingClaw = ref(false)
+    const isInstallingDistro = ref(false)
+    const wslInstallStatus = ref('')
+    const wslDownloadProgress = ref(0)
+    const clawLogs = ref([])
+
+    function pushLog(text, type = 'info') {
+      clawLogs.value.push({ text, type })
+      // 终端自动滚动到底部
+      deps.nextTick(() => {
+        const term = document.querySelector('.terminal')
+        if (term) term.scrollTop = term.scrollHeight
+      })
+    }
+
+    async function checkOpenClaw() {
+      if (!window.go) return
+      checkingClaw.value = true
+      try {
+        const status = await window.go.main.App.CheckOpenClaw()
+        deps.sysState.openclaw = status
+      } catch (e) { /* 忽略错误 */ }
+      checkingClaw.value = false
+    }
+
+    async function runWsl() {
+      if (!window.go) return
+      loadingWsl.value = true
+      wslAction.value = 'start'
+      wslPhase.value = 'wsl'
+      
+      window.go.main.App.RunWSLAsync()
+    }
+
+    function handleWslPhase(phase) {
+      wslPhase.value = phase
+    }
+
+    function handleWslDone(res) {
+      loadingWsl.value = false
+      if (res.ok) {
+        wslRunning.value = true
+        deps.toast('WSL 2 已启动', 'success')
+        deps.triggerDashboardStart()
+        
+        checkingClaw.value = true
+        let attempts = 0
+        const tryCheck = async () => {
+          attempts++
+          try {
+            const status = await window.go.main.App.CheckOpenClaw()
+            if (status.installed || attempts >= 5) {
+              deps.sysState.openclaw = status
+              checkingClaw.value = false
+            } else {
+              setTimeout(tryCheck, 1000)
+            }
+          } catch (e) {
+            checkingClaw.value = false
+          }
+        }
+        tryCheck()
+      } else {
+        deps.toast('启动失败: ' + (res.error || '未知错误'), 'error')
+      }
+    }
+
+    async function stopWsl() {
+      if (!window.go) return
+      loadingWsl.value = true
+      wslAction.value = 'stop'
+      try {
+        const res = await window.go.main.App.StopWSL()
+        if (res.ok) {
+          wslRunning.value = false
+          deps.toast('WSL 2 已关闭', 'success')
+          deps.triggerDashboardWslStopped()
+        } else {
+          deps.toast('关闭失败: ' + res.error, 'error')
+        }
+      } catch (e) {
+        deps.toast('系统调用失败', 'error')
+      }
+      loadingWsl.value = false
+    }
+
+    async function installWsl() {
+      if (!window.go) return
+      loadingWsl.value = true
+      try {
+        const res = await window.go.main.App.InstallWSL()
+        if (res.ok) {
+          deps.toast(res.message, 'success')
+          showRestartModal.value = true
+        } else {
+          deps.toast('安装出错: ' + res.error, 'error')
+        }
+      } catch (e) {
+        deps.toast('系统调用失败', 'error')
+      }
+      loadingWsl.value = false
+    }
+
+    async function installUbuntu() {
+      if (!window.go) return
+      isInstallingDistro.value = true
+      wslDownloadProgress.value = 0
+      wslInstallStatus.value = '正在启动安装程序...'
+      try {
+        await window.go.main.App.InstallUbuntu()
+      } catch (e) {
+        deps.toast('调用失败: ' + e, 'error')
+        isInstallingDistro.value = false
+      }
+    }
+
+    async function installOpenClaw() {
+      if (!window.go) return
+      isInstallingClaw.value = true
+      isUninstallingClaw.value = false
+      clawLogs.value = []
+      pushLog('>>> 开始部署 OpenClaw...', 'info')
+
+      try {
+        await window.go.main.App.InstallOpenClaw()
+      } catch (e) {
+        pushLog('调用失败: ' + e, 'error')
+        isInstallingClaw.value = false
+      }
+    }
+
+    async function uninstallOpenClaw() {
+      if (!window.go) return
+      isInstallingClaw.value = true
+      isUninstallingClaw.value = true
+      clawLogs.value = []
+      pushLog('>>> 开始卸载 OpenClaw...', 'info')
+
+      try {
+        await window.go.main.App.UninstallOpenClaw()
+      } catch (e) {
+        pushLog('调用失败: ' + e, 'error')
+        isInstallingClaw.value = false
+      }
+    }
+
+    let unsubStep = null
+    let unsubLog = null
+    let unsubDone = null
+    let unsubWslStatus = null
+    let unsubWslProgress = null
+    let unsubWslDone = null
+    let unsubRunWslPhase = null
+    let unsubRunWslDone = null
+
+    onMounted(async () => {
+      if (window.go) {
+        try {
+          wslRunning.value = await window.go.main.App.CheckWSLRunning()
+          if (wslRunning.value) {
+            checkOpenClaw()
+          }
+        } catch (e) { }
+      }
+
+      if (window.runtime) {
+        unsubStep = window.runtime.EventsOn("install:step", (step) => {
+          if (step.status === 'running') {
+            pushLog(`[Step ${step.index + 1}/${step.total}] ${step.label} ...`, 'info')
+          } else if (step.status === 'done') {
+            pushLog(`✓ ${step.label} 完成`, 'success')
+            if (step.output) pushLog(step.output, 'dim')
+          } else if (step.status === 'error') {
+            pushLog(`✗ ${step.label} 失败`, 'error')
+          }
+        })
+
+        unsubLog = window.runtime.EventsOn("install:log", (line) => {
+          pushLog(line, 'dim')
+        })
+
+        unsubDone = window.runtime.EventsOn("install:done", async (res) => {
+          isInstallingClaw.value = false
+          if (res.ok) {
+            if (isUninstallingClaw.value) {
+              pushLog('>>> ✨ OpenClaw 卸载成功！', 'success')
+              deps.toast('卸载成功！', 'success')
+            } else {
+              pushLog('>>> ✨ OpenClaw 部署成功！', 'success')
+              deps.toast('安装成功，解锁全部功能！', 'success')
+            }
+            const state = await window.go.main.App.GetInitialState()
+            deps.sysState.openclaw = state.openclaw
+          } else {
+            if (isUninstallingClaw.value) {
+              pushLog('>>> 卸载遇到错误终止。', 'error')
+              deps.toast('卸载过程出现错误: ' + res.error, 'error')
+            } else {
+              pushLog('>>> 部署遇到错误终止。', 'error')
+              deps.toast('安装过程出现错误: ' + res.error, 'error')
+            }
+          }
+        })
+
+        unsubWslStatus = window.runtime.EventsOn("wsl:install-status", (status) => {
+          wslInstallStatus.value = status
+          if (status.includes('下载')) {
+          } else {
+            wslDownloadProgress.value = 100
+          }
+        })
+
+        unsubWslProgress = window.runtime.EventsOn("wsl:download-progress", (p) => {
+          wslDownloadProgress.value = p
+        })
+
+        unsubWslDone = window.runtime.EventsOn("wsl:install-done", async (res) => {
+          isInstallingDistro.value = false
+          if (res.ok) {
+            deps.toast(res.message, 'success')
+            const state = await window.go.main.App.GetInitialState()
+            deps.sysState.wsl = state.wsl
+          } else {
+            deps.toast('Ubuntu 安装失败: ' + res.error, 'error')
+          }
+        })
+
+        unsubRunWslPhase = window.runtime.EventsOn("wsl:phase", handleWslPhase)
+        unsubRunWslDone = window.runtime.EventsOn("wsl:done", handleWslDone)
+      }
+    })
+
+    onUnmounted(() => {
+      if (unsubStep) unsubStep()
+      if (unsubLog) unsubLog()
+      if (unsubDone) unsubDone()
+      if (unsubWslStatus) unsubWslStatus()
+      if (unsubWslProgress) unsubWslProgress()
+      if (unsubWslDone) unsubWslDone()
+      if (unsubRunWslPhase) unsubRunWslPhase()
+      if (unsubRunWslDone) unsubRunWslDone()
+    })
+
+    return { showRestartModal, loadingWsl, wslAction, wslPhase, wslRunning, checkingClaw, isInstallingClaw, isUninstallingClaw, isInstallingDistro, wslInstallStatus, wslDownloadProgress, clawLogs, installWsl, installUbuntu, runWsl, stopWsl, checkOpenClaw, installOpenClaw, uninstallOpenClaw }
+  }
+</script>

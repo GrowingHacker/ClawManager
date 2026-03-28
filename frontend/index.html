@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>ClawManager</title>
+  <script src="/vue.global.js"></script>
+  <link rel="stylesheet" href="/src/css/app.css" />
+</head>
+<body>
+<div id="app" v-cloak>
+  <div class="app-layout">
+    <!-- 侧边栏 -->
+    <div class="sidebar" ref="sidebarRef">
+      <div class="brand">
+        <div class="brand-icon">
+          <span class="brand-icon-inner">🦞</span>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">ClawManager</span>
+          <span class="brand-version">SYSTEM v1.0</span>
+        </div>
+      </div>
+      <div class="blob" ref="blobRef"></div>
+
+      <div class="nav-section">
+        <div class="nav-section-label">核心服务</div>
+
+        <div class="nav-item" :class="{active: page===0, disabled: !sysState.openclaw.installed}" @click="goPage(0)">
+          <span class="nav-icon">⚡</span>
+          <span class="nav-label">OpenClaw 管理</span>
+          <span v-if="!sysState.openclaw.installed" class="lock-icon" title="请先在设置中安装">🔒</span>
+        </div>
+
+        <div class="nav-item" :class="{active: page===1, disabled: !sysState.openclaw.installed}" @click="goPage(1)">
+          <span class="nav-icon">🖥️</span>
+          <span class="nav-label">Dashboard 管理</span>
+          <span v-if="!sysState.openclaw.installed" class="lock-icon" title="请先在设置中安装">🔒</span>
+        </div>
+
+        <div class="nav-item" :class="{active: page===3, disabled: !sysState.openclaw.installed}" @click="goPage(3)">
+          <span class="nav-icon">🤖</span>
+          <span class="nav-label">模型管理</span>
+          <span v-if="!sysState.openclaw.installed" class="lock-icon" title="请先在设置中安装">🔒</span>
+        </div>
+
+        <div class="nav-item" :class="{active: page===4, disabled: !sysState.openclaw.installed}" @click="goPage(4)">
+          <span class="nav-icon">🔌</span>
+          <span class="nav-label">插件管理</span>
+          <span v-if="!sysState.openclaw.installed" class="lock-icon" title="请先在设置中安装">🔒</span>
+        </div>
+      </div>
+
+      <div class="nav-bottom">
+        <div class="nav-item" :class="{active: page===2}" @click="goPage(2)">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-label">设置 / 安装向导</span>
+        </div>
+        <div class="sidebar-status-line">
+          <div class="sidebar-status-dot"></div>
+          <span>SYSTEM ONLINE</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 主体内容 -->
+    <div class="main-content">
+      <template v-if="ready">
+        <div class="page" :class="{active: page===0, exit: exitPage===0}"><page-0 /></div>
+        <div class="page" :class="{active: page===1, exit: exitPage===1}"><page-1 /></div>
+        <div class="page" :class="{active: page===2, exit: exitPage===2}"><page-2 /></div>
+        <div class="page" :class="{active: page===3, exit: exitPage===3}"><page-3 /></div>
+        <div class="page" :class="{active: page===4, exit: exitPage===4}"><page-4 /></div>
+      </template>
+      <div v-else class="loading-state">
+        <div class="spinner"></div>
+        <p>正在检查系统环境...</p>
+      </div>
+    </div>
+  </div>
+  
+  <div class="toast-stack">
+    <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">
+      <span class="toast-icon" v-if="t.type === 'success'">✅</span>
+      <span class="toast-icon" v-else-if="t.type === 'error'">❌</span>
+      <span class="toast-icon" v-else-if="t.type === 'warning'">⚠️</span>
+      <span class="toast-icon" v-else>ℹ️</span>
+      <div class="toast-text">{{ t.text }}</div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function loadPage(path) {
+  const html = await (await fetch(path)).text()
+  const scriptMatch = html.match(/<script page-setup>([\s\S]*?)<\/script>/)
+  let pageSetup = () => ({})
+  if (scriptMatch) {
+    pageSetup = new Function(scriptMatch[1] + '\nreturn pageSetup')()
+  }
+  const template = html.replace(/<script page-setup>[\s\S]*?<\/script>/, '').trim()
+  return { template, pageSetup }
+}
+
+async function initApp() {
+  const { createApp, ref, reactive, nextTick, provide, inject, onMounted } = Vue
+
+  const pages = await Promise.all([
+    loadPage('/pages/OpenClawManager.html'),
+    loadPage('/pages/DashboardManager.html'),
+    loadPage('/pages/Settings.html'),
+    loadPage('/pages/ModelsManager.html'),
+    loadPage('/pages/PluginsManager.html'),
+  ])
+
+  const app = createApp({
+    setup() {
+      const ready      = ref(false)
+      const page       = ref(0)
+      const exitPage   = ref(-1)
+      const sidebarRef = ref(null)
+      const blobRef    = ref(null)
+      const toasts     = ref([])
+
+      const sysState = reactive({
+        wsl: { installed: false, distroInstalled: false, version: '', error: '' },
+        openclaw: { installed: false, version: '', gatewayRunning: false, error: '' }
+      })
+
+      function moveBlob() {
+        nextTick(() => {
+          const sidebar = sidebarRef.value, blob = blobRef.value
+          if (!sidebar || !blob) return
+          
+          // 跳过品牌头部元素（子元素索引为 0）
+          const items = Array.from(sidebar.querySelectorAll('.nav-item'))
+          
+          let activeIndex = page.value
+          if (activeIndex === 2) { // 设置页面固定在底部
+            activeIndex = 4 
+          } else if (activeIndex === 3) {
+            activeIndex = 2
+          } else if (activeIndex === 4) {
+            activeIndex = 3
+          }
+
+          const active = items[activeIndex]
+          if (!active) return
+          const sr = sidebar.getBoundingClientRect()
+          const er = active.getBoundingClientRect()
+          blob.style.top = (er.top - sr.top) + 'px'
+        })
+      }
+
+      function goPage(idx) {
+        if (idx < 4 && idx !== 2 && !sysState.openclaw.installed) {
+          toast('请先在设置中完成 OpenClaw 的安装', 'warning')
+          return
+        }
+        if (idx === page.value) return
+        exitPage.value = page.value
+        setTimeout(() => { exitPage.value = -1 }, 300)
+        setTimeout(() => { page.value = idx; moveBlob() }, 50)
+      }
+
+      function toast(text, type = 'info') {
+        const id = Date.now() + Math.random()
+        // 去掉 ANSI 码并截取长度
+        const cleanText = text.toString()
+          .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+          .substring(0, 300)
+
+        toasts.value.push({ id, text: cleanText, type })
+        setTimeout(() => toasts.value = toasts.value.filter(x => x.id !== id), 3200)
+      }
+
+      let dashboardRefreshFn = null
+      let dashboardStartFn = null
+      let dashboardWslStoppedFn = null
+      function registerDashboardRefresh(fn) {
+        dashboardRefreshFn = fn
+      }
+      function registerDashboardStart(fn) {
+        dashboardStartFn = fn
+      }
+      function registerDashboardWslStopped(fn) {
+        dashboardWslStoppedFn = fn
+      }
+      function triggerDashboardRefresh() {
+        if (dashboardRefreshFn) dashboardRefreshFn()
+      }
+      function triggerDashboardStart() {
+        if (dashboardStartFn) dashboardStartFn()
+      }
+      function triggerDashboardWslStopped() {
+        if (dashboardWslStoppedFn) dashboardWslStoppedFn()
+      }
+
+      onMounted(async () => {
+        try {
+          // 等待 window.go 对象加载完成
+          if (window.go && window.go.main && window.go.main.App) {
+             const state = await window.go.main.App.GetInitialState()
+             sysState.wsl = state.wsl
+             sysState.openclaw = state.openclaw
+             
+             if (!sysState.openclaw.installed) {
+               page.value = 2 // 强制跳转到设置/安装页面
+             }
+          }
+        } catch(e) {
+             console.error(e)
+             toast('无法连接到后端服务', 'error')
+        }
+        ready.value = true
+        nextTick(() => moveBlob())
+      })
+
+      // 监听窗口大小变化以修复悬浮块位置
+      window.addEventListener('resize', () => moveBlob())
+
+      const deps = { toast, nextTick, sysState, registerDashboardRefresh, registerDashboardStart, registerDashboardWslStopped, triggerDashboardRefresh, triggerDashboardStart, triggerDashboardWslStopped }
+      const ctx = {
+        sysState, goPage,
+        ...pages[0].pageSetup(deps),
+        ...pages[1].pageSetup(deps),
+        ...pages[2].pageSetup(deps),
+        ...pages[3].pageSetup(deps),
+        ...pages[4].pageSetup(deps),
+      }
+
+      provide('ctx', ctx)
+
+      return { ready, page, exitPage, sidebarRef, blobRef, toasts, sysState, goPage }
+    }
+  })
+
+  pages.forEach((p, i) => {
+    app.component(`page-${i}`, {
+      template: p.template,
+      setup() { return inject('ctx') }
+    })
+  })
+
+  app.mount('#app')
+}
+
+// 等待 wails 前端绑定加载完毕
+window.onload = initApp;
+</script>
+</body>
+</html>

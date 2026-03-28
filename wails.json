@@ -1,0 +1,12 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "ClawManager",
+  "outputfilename": "ClawManager",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "author": {
+    "name": "honphie",
+    "email": "776878251@qq.com"
+  }
+}

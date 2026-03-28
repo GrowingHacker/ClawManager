@@ -1,0 +1,156 @@
+<div>
+  <div class="header-with-action">
+    <div>
+      <div class="header-title-row">
+        <h1>Dashboard</h1>
+      </div>
+      <div class="header-actions">
+        <p class="subtitle">// OpenClaw Web 控制台</p>
+      </div>
+    </div>
+    <button class="btn-sync" @click="refreshDashboardStatus" :disabled="checking || starting">
+      <svg class="sync-icon" :class="{ spinning: checking || starting }"
+           width="11" height="11" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2.5"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+        <path d="M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+        <path d="M3 21v-5h5"/>
+      </svg>
+      <span v-if="starting">启动中...</span>
+      <span v-else-if="checking">刷新中...</span>
+      <span v-else>刷新</span>
+    </button>
+  </div>
+
+  <div class="dashboard-status-card" :class="starting ? 'status-starting' : (status.running ? 'status-running' : 'status-stopped')">
+    <!-- 状态行 -->
+    <div class="status-indicator">
+      <span class="status-dot" :class="starting ? 'dot-starting' : (status.running ? 'dot-running' : 'dot-stopped')"></span>
+      <span class="status-label">{{ starting ? '服务启动中' : (status.running ? '运行中' : '未运行') }}</span>
+    </div>
+
+    <!-- 链接行 -->
+    <div class="status-url" :class="{ offline: !status.running && !starting }">
+      <span class="url-text" :class="{ muted: !status.running && !starting }">{{ displayURL }}</span>
+      <button v-if="status.running" class="btn-copy" @click="copyURL">
+        {{ copied ? '✓ 已复制' : '📋 复制' }}
+      </button>
+    </div>
+
+    <!-- 操作按钮 -->
+    <div v-if="status.running" class="status-actions">
+      <button class="btn-primary btn-large" @click="openInBrowser">🌐 在浏览器中打开</button>
+    </div>
+
+    <div v-if="starting" class="dashboard-hint-inline">
+      <p>Dashboard 服务正在启动，请稍候...</p>
+    </div>
+    <div v-else-if="!status.running && hint === 'wsl-stopped'" class="dashboard-hint-inline">
+      <p>请前往 <strong>设置</strong> 页面启动 WSL</p>
+    </div>
+    <div v-else-if="!status.running" class="dashboard-hint-inline">
+      <p>请前往 <strong>OpenClaw 管理</strong> 页面启动 Gateway</p>
+    </div>
+  </div>
+
+  <div class="dashboard-hint">
+    <p>💡 Dashboard 是 OpenClaw Gateway 内置的 Web 管理界面，随 Gateway 一同启停。</p>
+  </div>
+</div>
+
+<script page-setup>
+  const { ref, computed, onMounted, onUnmounted } = Vue
+
+  function pageSetup(deps) {
+    const status   = ref({ running: false, port: 18789, url: 'http://localhost:18789', fullUrl: 'http://localhost:18789' })
+    const checking = ref(false)
+    const copied   = ref(false)
+    const starting = ref(false)
+    const hint     = ref('')
+    let pollTimer  = null
+
+    const displayURL = computed(() => {
+      const full = status.value.fullUrl || status.value.url
+      const idx = full.indexOf('#token=')
+      if (idx === -1) return full
+      return full.slice(0, idx) + '#token=' + full.slice(idx + 7, idx + 15) + '…'
+    })
+
+    async function refreshDashboardStatus() {
+      if (!window.go || checking.value) return
+      checking.value = true
+      try {
+        const res = await window.go.main.App.CheckDashboard()
+        status.value = res
+        if (res.running) hint.value = ''
+      } catch(e) {
+      } finally {
+        checking.value = false
+      }
+    }
+
+    async function waitForDashboardReady() {
+      starting.value = true
+      hint.value = ''
+      status.value = { running: false, port: 18789, url: 'http://localhost:18789', fullUrl: 'http://localhost:18789' }
+      
+      let attempts = 0
+      const maxAttempts = 30
+      
+      const check = async () => {
+        attempts++
+        try {
+          const res = await window.go.main.App.CheckDashboard()
+          if (res.running) {
+            status.value = res
+            starting.value = false
+            return
+          }
+        } catch(e) {
+        }
+        
+        if (attempts < maxAttempts) {
+          pollTimer = setTimeout(check, 500)
+        } else {
+          starting.value = false
+          deps.toast('Dashboard 服务启动超时，请手动刷新', 'warning')
+        }
+      }
+      
+      check()
+    }
+
+    function setWslStopped() {
+      hint.value = 'wsl-stopped'
+      status.value = { running: false, port: 18789, url: 'http://localhost:18789', fullUrl: 'http://localhost:18789' }
+    }
+
+    async function openInBrowser() {
+      if (!window.go) return
+      try { await window.go.main.App.OpenURL(status.value.fullUrl) }
+      catch(e) { deps.toast('无法打开浏览器', 'error') }
+    }
+
+    function copyURL() {
+      navigator.clipboard.writeText(status.value.fullUrl).then(() => {
+        copied.value = true
+        setTimeout(() => { copied.value = false }, 2000)
+      })
+    }
+
+    onMounted(() => {
+      refreshDashboardStatus()
+      deps.registerDashboardRefresh(refreshDashboardStatus)
+      deps.registerDashboardStart(waitForDashboardReady)
+      deps.registerDashboardWslStopped(setWslStopped)
+    })
+
+    onUnmounted(() => {
+      if (pollTimer) clearTimeout(pollTimer)
+    })
+
+    return { status, checking, copied, starting, hint, displayURL, refreshDashboardStatus, openInBrowser, copyURL }
+  }
+</script>

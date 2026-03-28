@@ -1,0 +1,122 @@
+<div>
+  <div class="header-with-action">
+    <div>
+      <h1>OpenClaw 管理</h1>
+      <p class="subtitle">// 管理本地 WSL 中的 OpenClaw 核心服务</p>
+    </div>
+  </div>
+
+  <!-- Gateway 状态卡片 -->
+  <div class="card status-card" :class="sysState.openclaw.gatewayRunning ? 'card-running' : 'card-stopped'">
+    <h2>运行状态</h2>
+    <div class="status-row">
+      <div class="status-label">
+        <div class="status-dot-wrap">
+          <span class="status-dot" :class="sysState.openclaw.gatewayRunning ? 'dot-running' : 'dot-stopped'"></span>
+        </div>
+        <div>
+          <div class="status-item-name">Gateway 服务</div>
+          <div class="status-item-desc">提供 API 接口与本地客户端通信</div>
+        </div>
+      </div>
+      <div class="btn-group">
+        <span class="badge" :class="sysState.openclaw.gatewayRunning ? 'success' : 'danger'">
+          {{ sysState.openclaw.gatewayRunning ? '运行中' : '已停止' }}
+        </span>
+        <button v-if="sysState.openclaw.gatewayRunning" class="btn btn-danger" @click="stopGateway"
+          :disabled="loading">停止</button>
+        <button v-else class="btn btn-success" @click="startGateway" :disabled="loading">启动</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 系统信息卡片 -->
+  <div class="card status-card" :class="sysState.openclaw.installed ? 'card-ready' : 'card-stopped'">
+    <div class="card-header-row">
+      <h2>系统信息</h2>
+      <a href="javascript:void(0)" @click="goPage(2)" class="text-accent">重新安装（尝试修复）</a>
+    </div>
+    <div class="status-row">
+      <div class="text-muted">OpenClaw 版本</div>
+      <div class="info-value">{{ sysState.openclaw.version || '未知' }}</div>
+    </div>
+    <div class="status-row">
+      <div class="text-muted">WSL 版本</div>
+      <div class="info-value">{{ sysState.wsl.version || 'WSL 2' }}</div>
+    </div>
+  </div>
+
+  <!-- 执行等待弹窗 -->
+  <div class="waiting-overlay" v-if="loading">
+    <div class="waiting-modal">
+      <div class="spinner"></div>
+      <h3>正在{{ sysState.openclaw.gatewayRunning ? '停止' : '启动' }}服务</h3>
+      <p>{{ sysState.openclaw.gatewayRunning ? '正在关闭 Gateway 服务...' : '正在启动 Gateway 服务...' }}</p>
+    </div>
+  </div>
+</div>
+
+<script page-setup>
+  const { ref, onMounted } = Vue
+
+  function pageSetup(deps) {
+    const loading = ref(false)
+
+    async function refreshStatus() {
+      if (!window.go) return
+      loading.value = true
+      try {
+        const res = await window.go.main.App.GetGatewayStatus()
+        deps.sysState.openclaw.gatewayRunning = res.running
+      } catch (e) {
+        deps.toast('获取状态失败', 'error')
+      }
+      loading.value = false
+    }
+
+    async function startGateway() {
+      if (!window.go) return
+      loading.value = true
+      try {
+        const res = await window.go.main.App.StartGateway()
+
+        if (res.needsRestart) {
+          deps.sysState.openclaw.gatewayRunning = false
+          deps.toast('已自动启用 systemd，请重新打开 WSL 终端后再点击启动', 'warning')
+        } else if (res.ok && res.running) {
+          deps.sysState.openclaw.gatewayRunning = true
+          deps.toast('Gateway 已启动', 'success')
+          deps.triggerDashboardStart()
+        } else {
+          deps.sysState.openclaw.gatewayRunning = false
+          deps.toast('启动失败: ' + (res.error || '未知错误'), 'error')
+          if (res.log) console.warn('[Gateway Log]\n' + res.log)
+        }
+      } catch (e) {
+        deps.sysState.openclaw.gatewayRunning = false
+        deps.toast('启动失败: ' + (e.message || e), 'error')
+      }
+      loading.value = false
+    }
+
+    async function stopGateway() {
+      if (!window.go) return
+      loading.value = true
+      try {
+        const res = await window.go.main.App.StopGateway()
+        if (res.ok) {
+          deps.toast('Gateway 已停止', 'success')
+          deps.sysState.openclaw.gatewayRunning = false
+          deps.triggerDashboardRefresh()
+        } else {
+          deps.toast('停止失败: ' + res.error, 'error')
+        }
+      } catch (e) {
+        deps.toast('停止失败', 'error')
+      }
+      loading.value = false
+    }
+
+    return { loading, refreshStatus, startGateway, stopGateway }
+  }
+</script>

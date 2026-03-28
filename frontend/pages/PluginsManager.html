@@ -1,0 +1,429 @@
+<div>
+
+  <div class="header-with-action">
+    <div>
+      <h1>插件管理</h1>
+      <p class="subtitle">// 管理 OpenClaw 插件</p>
+    </div>
+    <div class="header-controls">
+      <button class="btn btn-primary" @click="showAddPluginModal = true">添加插件</button>
+      <button class="btn btn-outline" @click="showAddCustomModal = true">添加自定义插件</button>
+    </div>
+  </div>
+
+  <!-- 插件列表 -->
+  <div class="card">
+    <h2>已安装插件</h2>
+    
+    <div class="plugin-grid">
+      <div v-if="plugins.length === 0" class="empty-state">
+        <p>暂无插件，请点击"添加插件"或"添加自定义插件"按钮添加</p>
+      </div>
+      
+      <div 
+        v-for="plugin in plugins" 
+        :key="plugin.id" 
+        class="plugin-card"
+        :class="plugin.enabled ? 'plugin-card--enabled' : 'plugin-card--disabled'"
+      >
+        <!-- 状态指示竖条 -->
+        <div class="plugin-status-bar" :class="plugin.enabled ? 'bar--on' : 'bar--off'"></div>
+
+        <!-- 图标 -->
+        <div class="plugin-avatar" :class="plugin.enabled ? 'avatar--on' : 'avatar--off'">
+          <span v-if="plugin.id === 'openclaw-weixin' || plugin.id === 'weixin'">WX</span>
+          <span v-else-if="plugin.id === 'acpx'">AX</span>
+          <span v-else>{{ (plugin.name || plugin.id || '?').slice(0,2).toUpperCase() }}</span>
+        </div>
+
+        <!-- 主信息 -->
+        <div class="plugin-info">
+          <div class="plugin-name" :class="{ 'plugin-name--dim': !plugin.enabled }">
+            {{ plugin.name || plugin.id || '未命名插件' }}
+          </div>
+          <div class="plugin-sub">
+            <span class="plugin-id-text">{{ plugin.id || '未知ID' }}</span>
+            <span v-if="plugin.version" class="entity-badge-primary">v{{ plugin.version }}</span>
+          </div>
+        </div>
+
+        <!-- 状态徽章 -->
+        <div class="plugin-status-badge" :class="plugin.enabled ? 'status--on' : 'status--off'">
+          <span class="plugin-status-dot"></span>
+          {{ plugin.enabled ? 'RUNNING' : 'STOPPED' }}
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="plugin-actions">
+          <button 
+            class="btn btn-sm" 
+            :class="plugin.enabled ? 'btn-outline' : 'btn-success'"
+            @click="togglePlugin(plugin)"
+            :disabled="!plugin.id && !plugin.name"
+          >{{ plugin.enabled ? '禁用' : '启用' }}</button>
+          <button 
+            v-if="plugin.id === 'openclaw-weixin' || plugin.id === 'weixin'"
+            class="btn btn-sm btn-primary"
+            @click="startWeixinAuth"
+            :disabled="isWeixinAuthing"
+          >{{ isWeixinAuthing ? '授权中...' : '微信授权' }}</button>
+          <button class="btn btn-sm btn-danger" @click="uninstallPlugin(plugin.id || plugin.name)">卸载</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 局部美化弹窗：已通过 CSS 偏移修复侧边栏遮挡与定位漂移问题 -->
+    <!-- 本地美化确认对话框 -->
+    <div v-if="confirmState.show" class="modal-overlay confirm-modal-overlay">
+      <div class="confirm-modal">
+        <div class="confirm-modal-header">
+          <span class="confirm-icon">⚠️</span>
+          <h3>系统提示</h3>
+        </div>
+        <div class="confirm-modal-body">
+          <p>{{ confirmState.message }}</p>
+        </div>
+        <div class="confirm-modal-footer">
+          <button class="btn btn-outline btn-sm" @click="confirmState.resolve(false)">取消</button>
+          <button class="btn btn-primary btn-sm" @click="confirmState.resolve(true)">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 本地加载等待弹窗 -->
+    <div v-if="showPluginsWaitingModal || isLoading" class="modal-overlay global-loading-overlay">
+      <div class="global-loading-modal">
+        <div class="spinner"></div>
+        <h3>{{ isLoading ? '正在加载插件列表...' : waitingText }}</h3>
+        <p>请稍候，正在处理中...</p>
+      </div>
+    </div>
+
+    <!-- 微信授权弹窗 -->
+    <div v-if="showWeixinAuthModal" class="modal-overlay" @click="closeWeixinAuthModal">
+      <div class="modal weixin-auth-modal" @click.stop>
+        <div class="modal-header">
+          <h2>微信授权</h2>
+          <button class="btn-close" @click="closeWeixinAuthModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="weixinAuthUrl" class="qrcode-container">
+            <p>请使用微信扫描下方二维码完成授权</p>
+            <div class="qrcode-box">
+              <img v-if="weixinAuthUrl.startsWith('http')" :src="'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(weixinAuthUrl)" alt="微信授权二维码">
+              <div v-else class="auth-url">{{ weixinAuthUrl }}</div>
+            </div>
+          </div>
+          <div v-else class="auth-loading">
+            <div class="spinner"></div>
+            <p>正在获取授权二维码...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加插件模态框 -->
+    <div v-if="showAddPluginModal" class="modal-overlay" @click="closeAddPluginModal">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <h2>添加插件</h2>
+          <button class="btn-close" @click="closeAddPluginModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form @submit.prevent="installPlugin">
+            <div class="form-group">
+              <label>选择插件</label>
+              <select v-model="selectedPlugin" :class="{ 'input-error': pluginSelectError }">
+                <option value="">请选择插件</option>
+                <option value="weixin">微信插件</option>
+              </select>
+              <div v-if="pluginSelectError" class="field-error-msg">
+                <span class="field-error-icon">▸</span> 请先选择一个插件
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" @click="closeAddPluginModal">取消</button>
+              <button type="submit" class="btn btn-primary">安装</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加自定义插件模态框 -->
+    <div v-if="showAddCustomModal" class="modal-overlay" @click="closeAddCustomModal">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <h2>添加自定义插件</h2>
+          <button class="btn-close" @click="closeAddCustomModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form @submit.prevent="installCustomPlugin">
+            <div class="form-group">
+              <label>Linux 命令行</label>
+              <input 
+                type="text" 
+                v-model="customCommand" 
+                :class="{ 'input-error': customCommandError }"
+                placeholder="例如: npm install -g @openclaw/custom-plugin"
+              >
+              <div v-if="customCommandError" class="field-error-msg">
+                <span class="field-error-icon">▸</span> 请输入要执行的命令
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" @click="closeAddCustomModal">取消</button>
+              <button type="submit" class="btn btn-primary">执行</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+</div>
+
+<script page-setup>
+  // 使用 Vue 原始对象以增强在 new Function 动态加载环境下的稳定性
+  const { ref, reactive, onMounted } = Vue
+
+  function pageSetup(deps) {
+    const plugins = ref([])
+    const isLoading = ref(false)
+    const showAddPluginModal = ref(false)
+    const showAddCustomModal = ref(false)
+    const showPluginsWaitingModal = ref(false)
+    const waitingText = ref('正在处理...')
+    const selectedPlugin = ref('')
+    const customCommand = ref('')
+    const pluginSelectError = ref(false)
+    const customCommandError = ref(false)
+
+    // 本地确认对话框状态
+    const confirmState = Vue.reactive({
+      show: false,
+      message: '',
+      resolve: null
+    })
+
+    function showConfirm(message) {
+      confirmState.message = message
+      confirmState.show = true
+      return new Promise((resolve) => {
+        confirmState.resolve = (result) => {
+          confirmState.show = false
+          resolve(result)
+        }
+      })
+    }
+    
+    // 微信授权相关
+    const showWeixinAuthModal = ref(false)
+    const isWeixinAuthing = ref(false)
+    const weixinAuthUrl = ref('')
+    const weixinAuthLogs = ref([])
+
+    async function loadPlugins() {
+      isLoading.value = true
+      try {
+        if (window.go && window.go.main && window.go.main.App) {
+          const list = await window.go.main.App.GetPlugins()
+          plugins.value = list
+        }
+      } catch (e) {
+        console.error('Failed to load plugins:', e)
+        deps.toast('加载插件列表失败', 'error')
+      } finally {
+        isLoading.value = false
+      }
+    }
+
+    async function installPlugin() {
+      if (!selectedPlugin.value) {
+        pluginSelectError.value = true
+        return
+      }
+      pluginSelectError.value = false
+
+      showAddPluginModal.value = false
+      showPluginsWaitingModal.value = true
+      waitingText.value = '正在安装插件...'
+
+      try {
+        if (window.go && window.go.main && window.go.main.App) {
+          // 微信插件使用标准 InstallPlugin 方法
+          if (selectedPlugin.value === 'weixin') {
+            await window.go.main.App.InstallPlugin('@tencent-weixin/openclaw-weixin@latest')
+            deps.toast('微信插件安装成功，请手动点击"微信授权"按钮完成登录', 'success')
+          } else {
+            // 其他插件使用标准格式
+            await window.go.main.App.InstallPlugin(selectedPlugin.value)
+            deps.toast('插件安装成功', 'success')
+          }
+          await loadPlugins()
+        }
+      } catch (e) {
+        console.error('Failed to install plugin:', e)
+        deps.toast(e || '插件安装失败', 'error')
+      } finally {
+        showPluginsWaitingModal.value = false
+        selectedPlugin.value = ''
+      }
+    }
+
+    async function installCustomPlugin() {
+      if (!customCommand.value) {
+        customCommandError.value = true
+        return
+      }
+      customCommandError.value = false
+      
+      showAddCustomModal.value = false
+      showPluginsWaitingModal.value = true
+      waitingText.value = '正在执行自定义命令...'
+      
+      try {
+        if (window.go && window.go.main && window.go.main.App) {
+          await window.go.main.App.InstallCustomPlugin(customCommand.value)
+          showPluginsWaitingModal.value = false
+          deps.toast('自定义插件安装成功', 'success')
+          await loadPlugins()
+        }
+      } catch (e) {
+        console.error('Failed to install custom plugin:', e)
+        showPluginsWaitingModal.value = false
+        deps.toast(e || '自定义插件安装失败', 'error')
+      } finally {
+        showPluginsWaitingModal.value = false
+        customCommand.value = ''
+      }
+    }
+
+    async function togglePlugin(plugin) {
+      const pluginId = plugin.id || plugin.name
+      if (!pluginId) {
+        deps.toast('插件ID无效', 'error')
+        return
+      }
+      showPluginsWaitingModal.value = true
+      waitingText.value = plugin.enabled ? '正在禁用插件...' : '正在启用插件...'
+      try {
+        if (window.go && window.go.main && window.go.main.App) {
+          if (plugin.enabled) {
+            await window.go.main.App.DisablePlugin(pluginId)
+            deps.toast('插件已禁用', 'success')
+          } else {
+            await window.go.main.App.EnablePlugin(pluginId)
+            deps.toast('插件已启用', 'success')
+          }
+          await loadPlugins()
+        }
+      } catch (e) {
+        console.error('Failed to toggle plugin:', e)
+        deps.toast(e || '操作失败', 'error')
+      } finally {
+        showPluginsWaitingModal.value = false
+      }
+    }
+
+    async function uninstallPlugin(pluginId) {
+      if (!await showConfirm('确定要卸载这个插件吗？')) return
+      
+      showPluginsWaitingModal.value = true
+      waitingText.value = '正在卸载插件...'
+      
+      try {
+        if (window.go && window.go.main && window.go.main.App) {
+          await window.go.main.App.UninstallPlugin(pluginId)
+          showPluginsWaitingModal.value = false
+          deps.toast('插件卸载成功', 'success')
+          await loadPlugins()
+        }
+      } catch (e) {
+        console.error('Failed to uninstall plugin:', e)
+        showPluginsWaitingModal.value = false
+        deps.toast(e || '插件卸载失败', 'error')
+      } finally {
+        showPluginsWaitingModal.value = false
+      }
+    }
+
+    function closeAddPluginModal() {
+      showAddPluginModal.value = false
+      selectedPlugin.value = ''
+      pluginSelectError.value = false
+    }
+
+    function closeAddCustomModal() {
+      showAddCustomModal.value = false
+      customCommand.value = ''
+      customCommandError.value = false
+    }
+
+    // 微信授权相关方法
+    function startWeixinAuth() {
+      isWeixinAuthing.value = true
+      showWeixinAuthModal.value = true
+      weixinAuthUrl.value = ''
+      weixinAuthLogs.value = []
+
+      // 调用后端微信授权
+      if (window.go && window.go.main && window.go.main.App) {
+        window.go.main.App.WeixinAuth()
+      }
+    }
+
+    function closeWeixinAuthModal() {
+      showWeixinAuthModal.value = false
+      isWeixinAuthing.value = false
+      weixinAuthUrl.value = ''
+      weixinAuthLogs.value = []
+    }
+
+    onMounted(() => {
+      loadPlugins()
+
+      // 监听微信授权事件
+      if (window.runtime) {
+        window.runtime.EventsOn('weixinauth:url', (url) => {
+          weixinAuthUrl.value = url
+        })
+        window.runtime.EventsOn('weixinauth:log', (log) => {
+          weixinAuthLogs.value.push(log)
+        })
+        window.runtime.EventsOn('weixinauth:done', () => {
+          isWeixinAuthing.value = false
+          deps.toast('微信授权完成', 'success')
+          setTimeout(() => {
+            closeWeixinAuthModal()
+          }, 2000)
+        })
+      }
+    })
+
+    return {
+      plugins,
+      isLoading,
+      showAddPluginModal,
+      showAddCustomModal,
+      showPluginsWaitingModal,
+      selectedPlugin,
+      confirmState,
+      customCommand,
+      waitingText,
+      showWeixinAuthModal,
+      isWeixinAuthing,
+      weixinAuthUrl,
+      weixinAuthLogs,
+      pluginSelectError,
+      customCommandError,
+      installPlugin,
+      installCustomPlugin,
+      togglePlugin,
+      uninstallPlugin,
+      closeAddPluginModal,
+      closeAddCustomModal,
+      startWeixinAuth,
+      closeWeixinAuthModal
+    }
+  }
+</script>

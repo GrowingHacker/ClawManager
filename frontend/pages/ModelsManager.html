@@ -1,0 +1,381 @@
+<div>
+  <!-- 标题与操作栏 -->
+  <div class="header-with-action">
+    <div>
+      <h1>模型管理</h1>
+      <p class="subtitle">// 配置推理模型供应端</p>
+    </div>
+    <div class="header-controls">
+      <div class="toggle-switch">
+        <label class="switch-label">
+          <input type="checkbox" v-model="autoRestartEnabled">
+          <span class="switch-text">保存后自动重启网关</span>
+        </label>
+      </div>
+      <button class="btn btn-primary" @click="showAddModelModal = true">添加模型</button>
+    </div>
+  </div>
+
+  <!-- 局部美化弹窗：已通过 CSS 偏移修复侧边栏遮挡与定位漂移问题 -->
+    <!-- 本地美化确认对话框 -->
+    <div v-if="confirmState.show" class="modal-overlay confirm-modal-overlay" style="z-index: 10001;">
+      <div class="confirm-modal">
+        <div class="confirm-modal-header">
+          <span class="confirm-icon">⚠️</span>
+          <h3>系统提示</h3>
+        </div>
+        <div class="confirm-modal-body">
+          <p>{{ confirmState.message }}</p>
+        </div>
+        <div class="confirm-modal-footer">
+          <button class="btn btn-outline btn-sm" @click="confirmState.resolve(false)">取消</button>
+          <button class="btn btn-primary btn-sm" @click="confirmState.resolve(true)">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 本地加载等待窗口 -->
+    <div v-if="showModelsWaitingModal" class="modal-overlay global-loading-overlay" style="z-index: 10000;">
+      <div class="global-loading-modal">
+        <div class="spinner"></div>
+        <h3>正在重启网关...</h3>
+        <p>请稍候，网关正在重启以应用新的模型配置</p>
+      </div>
+    </div>
+
+    <!-- 添加/编辑模型模态框 -->
+    <div v-if="showAddModelModal" class="modal-overlay" @click="closeModals" style="z-index: 9999;">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <h2>{{ isEditingModel ? '编辑模型' : '添加模型' }}</h2>
+          <button class="btn-close" @click="closeModals">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form @submit.prevent="saveModel">
+            <div class="form-group">
+              <label>提供商</label>
+              <select v-model="currentModel.provider" :class="{ 'input-error': formErrors.provider }">
+                <option value="nvidia">NVIDIA</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="google">Google</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="other">其他</option>
+              </select>
+              <div v-if="formErrors.provider" class="field-error-msg"><span class="field-error-icon">▸</span> 请选择提供商</div>
+            </div>
+            <div class="form-group">
+              <label>服务器地址</label>
+              <input type="text" v-model="currentModel.baseUrl" :class="{ 'input-error': formErrors.baseUrl }" placeholder="例如: https://integrate.api.nvidia.com/v1">
+              <div v-if="formErrors.baseUrl" class="field-error-msg"><span class="field-error-icon">▸</span> 请输入服务器地址</div>
+            </div>
+            <div class="form-group">
+              <label>API Key</label>
+              <input type="text" v-model="currentModel.apiKey" :class="{ 'input-error': formErrors.apiKey }" placeholder="例如: nvapi-...">
+              <div v-if="formErrors.apiKey" class="field-error-msg"><span class="field-error-icon">▸</span> 请输入 API Key</div>
+            </div>
+            <div class="form-group">
+              <label>模型型号</label>
+              <input type="text" v-model="currentModel.id" :class="{ 'input-error': formErrors.id }" placeholder="例如: qwen/qwen3.5-397b-a17b">
+              <div v-if="formErrors.id" class="field-error-msg"><span class="field-error-icon">▸</span> 请输入模型型号</div>
+            </div>
+            <div class="form-group">
+              <label>模型名称</label>
+              <input type="text" v-model="currentModel.name" :class="{ 'input-error': formErrors.name }" placeholder="例如: Qwen3.5 397B A17B (NVIDIA)">
+              <div v-if="formErrors.name" class="field-error-msg"><span class="field-error-icon">▸</span> 请输入模型名称</div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" @click="closeModals">取消</button>
+              <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+  <!-- 模型列表 -->
+  <div class="card">
+    <h2>已添加模型</h2>
+    
+    <div class="model-grid">
+      <div v-if="allModels.length === 0" class="empty-state">
+        <p>暂无模型，请点击"添加模型"按钮添加</p>
+      </div>
+      
+      <div v-for="(model, index) in allModels" :key="index" class="model-card">
+        <!-- 左侧：徽章图标 + 提供商标签 -->
+        <div class="model-card-side">
+          <div class="model-avatar" :data-provider="model.provider.toLowerCase()">
+            <span>{{ model.provider.slice(0,2).toUpperCase() }}</span>
+          </div>
+          <span class="model-provider-badge">{{ model.provider.toUpperCase() }}</span>
+        </div>
+
+        <!-- 中间：主要信息 -->
+        <div class="model-card-body">
+          <div class="model-card-name" :title="model.name">{{ model.name }}</div>
+          <div class="model-card-id" :title="model.id">
+            <span class="model-card-id-prefix">ID /</span> {{ model.id }}
+          </div>
+          <div class="model-card-meta">
+            <div class="model-meta-row">
+              <span class="model-meta-label">BASE URL</span>
+              <span class="model-meta-value" :title="model.baseUrl">{{ model.baseUrl }}</span>
+            </div>
+            <div class="model-meta-row">
+              <span class="model-meta-label">API KEY</span>
+              <span class="model-meta-value api-key-dots">{{ model.apiKey ? '●●●●  ●●●●  ●●●●' : '— 未设置 —' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右侧：操作按钮 -->
+        <div class="model-card-actions">
+          <button class="btn btn-sm btn-outline" @click="editModel(model)">修改</button>
+          <button class="btn btn-sm btn-danger" @click="deleteModel(model.provider, model.id)">删除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script page-setup>
+  // 使用 Vue 原始对象以增强在 new Function 动态加载环境下的稳定性
+  const { ref, reactive, computed, onMounted } = Vue
+
+  function pageSetup(deps) {
+    const modelsConfig = ref({
+      mode: 'merge',
+      providers: {}
+    })
+    
+    const showAddModelModal = ref(false)
+    const isEditingModel = ref(false)
+    const originalModelId = ref('')
+    const showModelsWaitingModal = ref(false)
+    const autoRestartEnabled = ref(true)
+
+    const formErrors = Vue.reactive({
+      provider: false, baseUrl: false, apiKey: false, id: false, name: false
+    })
+
+    function clearFormErrors() {
+      formErrors.provider = false
+      formErrors.baseUrl = false
+      formErrors.apiKey = false
+      formErrors.id = false
+      formErrors.name = false
+    }
+
+    // 本地确认对话框状态
+    const confirmState = Vue.reactive({
+      show: false,
+      message: '',
+      resolve: null
+    })
+
+    function showConfirm(message) {
+      confirmState.message = message
+      confirmState.show = true
+      return new Promise((resolve) => {
+        confirmState.resolve = (result) => {
+          confirmState.show = false
+          resolve(result)
+        }
+      })
+    }
+    const currentModel = ref({
+      provider: 'nvidia',
+      baseUrl: '',
+      apiKey: '',
+      id: '',
+      name: ''
+    })
+
+    // 计算所有模型的列表
+    const allModels = computed(() => {
+      const models = []
+      for (const [providerName, provider] of Object.entries(modelsConfig.value.providers)) {
+        for (const model of provider.models) {
+          models.push({
+            ...model,
+            provider: providerName,
+            baseUrl: provider.baseUrl,
+            apiKey: provider.apiKey
+          })
+        }
+      }
+      return models
+    })
+
+    async function loadModelsConfig() {
+      try {
+        if (window.go && window.go.main && window.go.main.App) {
+          const config = await window.go.main.App.GetModelsConfig()
+          modelsConfig.value = config
+        }
+      } catch (e) {
+        console.error('Failed to load models config:', e)
+        deps.toast('加载模型配置失败', 'error')
+      }
+    }
+
+    async function saveModelsConfig() {
+      try {
+        if (window.go && window.go.main && window.go.main.App) {
+          await window.go.main.App.SaveModelsConfig(modelsConfig.value)
+          deps.toast('模型配置已保存', 'success')
+          
+          // 如果自动重启开关开启，重启网关
+          if (autoRestartEnabled.value) {
+            showModelsWaitingModal.value = true
+            try {
+              await window.go.main.App.RestartGateway()
+              deps.toast('网关已成功重启', 'success')
+            } catch (e) {
+              console.error('Failed to restart gateway:', e)
+              deps.toast('网关重启失败', 'warning')
+            } finally {
+              showModelsWaitingModal.value = false
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to save models config:', e)
+        deps.toast('保存模型配置失败', 'error')
+      }
+    }
+
+    function editModel(model) {
+      isEditingModel.value = true
+      originalModelId.value = model.id
+      currentModel.value = {
+        provider: model.provider,
+        baseUrl: model.baseUrl,
+        apiKey: model.apiKey,
+        id: model.id,
+        name: model.name
+      }
+      showAddModelModal.value = true
+    }
+
+    async function saveModel() {
+      // 自定义校验
+      clearFormErrors()
+      const m = currentModel.value
+      let hasError = false
+      if (!m.provider)  { formErrors.provider = true; hasError = true }
+      if (!m.baseUrl.trim()) { formErrors.baseUrl  = true; hasError = true }
+      if (!m.apiKey.trim()) { formErrors.apiKey   = true; hasError = true }
+      if (!m.id.trim())     { formErrors.id       = true; hasError = true }
+      if (!m.name.trim())   { formErrors.name     = true; hasError = true }
+      if (hasError) return
+
+      const providerName = currentModel.value.provider
+      const modelData = {
+        id: currentModel.value.id,
+        name: currentModel.value.name,
+        reasoning: true,
+        input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 131072,
+        maxTokens: 16384
+      }
+
+      // 检查提供商是否已存在
+      if (!modelsConfig.value.providers[providerName]) {
+        // 创建新提供商
+        modelsConfig.value.providers[providerName] = {
+          baseUrl: currentModel.value.baseUrl,
+          apiKey: currentModel.value.apiKey,
+          api: 'openai-completions',
+          models: []
+        }
+      } else {
+        // 更新现有提供商的配置
+        modelsConfig.value.providers[providerName].baseUrl = currentModel.value.baseUrl
+        modelsConfig.value.providers[providerName].apiKey = currentModel.value.apiKey
+      }
+
+      // 检查模型是否已存在
+      const provider = modelsConfig.value.providers[providerName]
+      let modelIndex = -1
+      
+      if (isEditingModel.value) {
+        // 编辑模式：查找原始模型ID
+        modelIndex = provider.models.findIndex(m => m.id === originalModelId.value)
+      } else {
+        // 添加模式：查找当前模型ID
+        modelIndex = provider.models.findIndex(m => m.id === modelData.id)
+      }
+      
+      if (modelIndex >= 0) {
+        // 如果是编辑模式且模型ID发生了变化，需要先删除旧模型
+        if (isEditingModel.value && originalModelId.value !== modelData.id) {
+          provider.models = provider.models.filter(m => m.id !== originalModelId.value)
+          // 添加新模型
+          provider.models.push(modelData)
+        } else {
+          // 更新现有模型
+          provider.models[modelIndex] = modelData
+        }
+      } else {
+        // 添加新模型
+        provider.models.push(modelData)
+      }
+      
+      await saveModelsConfig()
+      closeModals()
+    }
+
+    async function deleteModel(providerName, modelId) {
+      if (await showConfirm('确定要删除这个模型吗？')) {
+        const provider = modelsConfig.value.providers[providerName]
+        if (provider) {
+          provider.models = provider.models.filter(m => m.id !== modelId)
+          
+          // 如果提供商没有模型了，删除提供商
+          if (provider.models.length === 0) {
+            delete modelsConfig.value.providers[providerName]
+          }
+          
+          saveModelsConfig()
+        }
+      }
+    }
+
+    function closeModals() {
+      showAddModelModal.value = false
+      isEditingModel.value = false
+      originalModelId.value = ''
+      clearFormErrors()
+      currentModel.value = {
+        provider: 'nvidia',
+        baseUrl: '',
+        apiKey: '',
+        id: '',
+        name: ''
+      }
+    }
+
+    onMounted(() => {
+      loadModelsConfig()
+    })
+
+    return {
+      modelsConfig,
+      showAddModelModal,
+      isEditingModel,
+      currentModel,
+      allModels,
+      editModel,
+      saveModel,
+      deleteModel,
+      closeModals,
+      showModelsWaitingModal,
+      confirmState,
+      autoRestartEnabled,
+      formErrors
+    }
+  }
+</script>
