@@ -84,8 +84,6 @@ ClawManager.exe
 - [x] WSL 2 自动安装与检测
 - [x] OpenClaw 安装向导
 - [ ] OpenClaw 版本更新与回滚
-- [ ] 模型一键下载（HuggingFace / ModelScope）
-- [ ] 多 WSL 发行版支持
 - [ ] macOS 版本（计划中）
 - [ ] Linux 原生版本（计划中）
 
