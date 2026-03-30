@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -13,6 +14,38 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+const gatewayListenPort = 18789
+
+// hostListenGateway 从 Windows 侧探测本机 Gateway 端口（与 Dashboard 一致，依赖 WSL2 localhost 转发）。
+func hostListenGateway() bool {
+	addr := fmt.Sprintf("127.0.0.1:%d", gatewayListenPort)
+	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// inferGatewayRunningFromStatusOutput 根据 openclaw gateway status 的文本与 hostPortOpen 综合判断 Gateway 是否真正可用。
+// 不能仅凭 "Runtime: running"：CLI 可能在 RPC 失败、端口未监听时仍打印该文案。
+func inferGatewayRunningFromStatusOutput(cmdSuccess bool, output string, hostPortOpen bool) bool {
+	if !cmdSuccess {
+		return false
+	}
+	if strings.Contains(output, "RPC probe: ok") {
+		return true
+	}
+	lower := strings.ToLower(output)
+	if strings.Contains(lower, "rpc probe: failed") && !hostPortOpen {
+		return false
+	}
+	if strings.Contains(lower, "not listening") && !hostPortOpen {
+		return false
+	}
+	return hostPortOpen
+}
 
 // stripANSI 去除 ANSI 转义序列
 func stripANSI(s string) string {
@@ -92,7 +125,7 @@ func wslBashStream(command string, onLog func(string)) error {
 		}
 
 		// 检查行内是否包含 \r (进度条常见)
-		// 如果包含 \r，将其拆分为多行发送，以便前端展现“变化”
+		// 如果包含 \r，将其拆分为多行发送，以便前端展现"变化"
 		if strings.Contains(line, "\r") {
 			parts := strings.Split(line, "\r")
 			for _, part := range parts {
@@ -143,8 +176,29 @@ func ensureConfig() {
 	wslBashFast(combinedCmd)
 }
 
-// CheckOpenClaw 检测 WSL 中是否安装了 openclaw
+// CheckOpenClaw 检测 WSL 中是否安装了 openclaw。
+// 修复 1：发送任何 wsl 命令前先检查 WSL 进程是否存在，
+//
+//	避免 wslBashFast 的副作用将 WSL 冷启动，导致调用方读到假阳性的 wslRunning。
+//
+// 修复 2：将 gatewayRunning 的判断从模糊的 contains("active") 改为精确匹配 "active"，
+//
+//	防止 systemd 服务处于过渡态 "activating" 时被误判为已运行。
 func (m *Manager) CheckOpenClaw() wsl.OpenClawStatus {
+	// 修复 1：WSL 进程不存在则直接返回，不发任何命令
+	if !m.wslMgr.CheckWSLRunning() {
+		return wsl.OpenClawStatus{Installed: false}
+	}
+	return m.checkOpenClawCore()
+}
+
+// CheckOpenClawAssumingActiveSession 由已确认存在 WSL 会话的调用方使用（例如启动时的 GetInitialState），
+// 避免再次执行 wsl --list --running，少一次 wsl.exe 往返。
+func (m *Manager) CheckOpenClawAssumingActiveSession() wsl.OpenClawStatus {
+	return m.checkOpenClawCore()
+}
+
+func (m *Manager) checkOpenClawCore() wsl.OpenClawStatus {
 	out, err := wslBashFast("command -v openclaw || which openclaw || ls /home/honphie/.npm-global/bin/openclaw 2>/dev/null")
 	if err != nil || out == "" {
 		return wsl.OpenClawStatus{Installed: false}
@@ -155,13 +209,10 @@ func (m *Manager) CheckOpenClaw() wsl.OpenClawStatus {
 		path = "openclaw"
 	}
 
-	batchCmd := fmt.Sprintf("%s --version 2>/dev/null; systemctl --user is-active openclaw-gateway.service 2>/dev/null", path)
-	batchOut, _ := wslBashFast(batchCmd)
-
-	lines := strings.Split(batchOut, "\n")
+	versionOut, _ := wslBashFast(path + " --version 2>/dev/null")
 	version := "Unknown"
-	if len(lines) > 0 {
-		cleanVersion := stripANSI(strings.TrimSpace(lines[0]))
+	if versionOut != "" {
+		cleanVersion := stripANSI(strings.TrimSpace(versionOut))
 		var printable strings.Builder
 		for _, r := range cleanVersion {
 			if r >= 32 && r < 127 {
@@ -174,35 +225,34 @@ func (m *Manager) CheckOpenClaw() wsl.OpenClawStatus {
 		}
 	}
 
-	gatewayStatus := ""
-	if len(lines) > 1 {
-		gatewayStatus = strings.ToLower(lines[1])
-	}
-	running := strings.Contains(gatewayStatus, "active") && !strings.Contains(gatewayStatus, "inactive")
+	statusOut, _ := wslBashFast("/usr/local/bin/openclaw gateway status 2>&1")
+	hostPortOpen := hostListenGateway()
+	isRunning := inferGatewayRunningFromStatusOutput(true, statusOut, hostPortOpen)
 
 	return wsl.OpenClawStatus{
 		Installed:      true,
 		Version:        version,
-		GatewayRunning: running,
+		GatewayRunning: isRunning,
 	}
 }
 
 // GetGatewayStatus 检查 openclaw 网关是否正在运行
-// 使用 TCP 端口探测作为权威判断，不依赖 systemd 是否可用
+// 以 RPC 探测与本机端口为准，避免仅匹配 "Runtime: running" 造成假阳性。
 func (m *Manager) GetGatewayStatus() map[string]interface{} {
 	// 执行 openclaw gateway status 命令，完全模仿手动命令行模式
 	cmd := "/usr/local/bin/openclaw gateway status 2>&1"
 	output, err := wslBashFast(cmd)
 	cmdSuccess := err == nil
 
-	// 分析命令输出，判断 Gateway 是否运行
-	isRunning := cmdSuccess && (strings.Contains(output, "Runtime: running") || strings.Contains(output, "RPC probe: ok"))
+	hostPortOpen := hostListenGateway()
+	isRunning := inferGatewayRunningFromStatusOutput(cmdSuccess, output, hostPortOpen)
 
 	// 提取更多详细信息
 	statusDetails := make(map[string]interface{})
 	statusDetails["commandOutput"] = output
 	statusDetails["commandSuccess"] = cmdSuccess
 	statusDetails["running"] = isRunning
+	statusDetails["hostPortOpen"] = hostPortOpen
 
 	// 从输出中提取关键信息
 	if cmdSuccess {

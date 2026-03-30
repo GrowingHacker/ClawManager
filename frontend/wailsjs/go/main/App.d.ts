@@ -16,6 +16,8 @@ export function DisablePlugin(arg1:string):Promise<void>;
 
 export function EnablePlugin(arg1:string):Promise<void>;
 
+export function GetFeishuConfig():Promise<Record<string, any>>;
+
 export function GetGatewayStatus():Promise<Record<string, any>>;
 
 export function GetInitialState():Promise<Record<string, any>>;
@@ -25,6 +27,8 @@ export function GetModelsConfig():Promise<Record<string, any>>;
 export function GetPluginDetail(arg1:string):Promise<string>;
 
 export function GetPlugins():Promise<Array<plugins.Plugin>>;
+
+export function GetProviderCatalog(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;
 
 export function InstallCustomPlugin(arg1:string):Promise<void>;
 
@@ -44,6 +48,8 @@ export function RunWSL():Promise<Record<string, any>>;
 
 export function RunWSLAsync():Promise<void>;
 
+export function SaveFeishuConfig(arg1:Record<string, any>):Promise<Record<string, any>>;
+
 export function SaveModelsConfig(arg1:Record<string, any>):Promise<Record<string, any>>;
 
 export function StartGateway():Promise<Record<string, any>>;
@@ -51,6 +57,8 @@ export function StartGateway():Promise<Record<string, any>>;
 export function StopGateway():Promise<Record<string, any>>;
 
 export function StopWSL():Promise<Record<string, any>>;
+
+export function ToggleFeishuPlugin(arg1:boolean):Promise<Record<string, any>>;
 
 export function UninstallOpenClaw():Promise<void>;
 

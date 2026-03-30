@@ -26,6 +26,10 @@ export function EnablePlugin(arg1) {
   return window['go']['main']['App']['EnablePlugin'](arg1);
 }
 
+export function GetFeishuConfig() {
+  return window['go']['main']['App']['GetFeishuConfig']();
+}
+
 export function GetGatewayStatus() {
   return window['go']['main']['App']['GetGatewayStatus']();
 }
@@ -44,6 +48,10 @@ export function GetPluginDetail(arg1) {
 
 export function GetPlugins() {
   return window['go']['main']['App']['GetPlugins']();
+}
+
+export function GetProviderCatalog(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetProviderCatalog'](arg1, arg2, arg3);
 }
 
 export function InstallCustomPlugin(arg1) {
@@ -82,6 +90,10 @@ export function RunWSLAsync() {
   return window['go']['main']['App']['RunWSLAsync']();
 }
 
+export function SaveFeishuConfig(arg1) {
+  return window['go']['main']['App']['SaveFeishuConfig'](arg1);
+}
+
 export function SaveModelsConfig(arg1) {
   return window['go']['main']['App']['SaveModelsConfig'](arg1);
 }
@@ -96,6 +108,10 @@ export function StopGateway() {
 
 export function StopWSL() {
   return window['go']['main']['App']['StopWSL']();
+}
+
+export function ToggleFeishuPlugin(arg1) {
+  return window['go']['main']['App']['ToggleFeishuPlugin'](arg1);
 }
 
 export function UninstallOpenClaw() {

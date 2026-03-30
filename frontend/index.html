@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>ClawManager</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <script src="/vue.global.js"></script>
   <link rel="stylesheet" href="/src/css/app.css" />
 </head>
@@ -17,7 +18,7 @@
         </div>
         <div class="brand-text">
           <span class="brand-name">ClawManager</span>
-          <span class="brand-version">SYSTEM v1.0</span>
+          <span class="brand-version">SYSTEM v26.3.31</span>
         </div>
       </div>
       <div class="blob" ref="blobRef"></div>
@@ -25,28 +26,28 @@
       <div class="nav-section">
         <div class="nav-section-label">核心服务</div>
 
-        <div class="nav-item" :class="{active: page===0, disabled: !sysState.openclaw.installed}" @click="goPage(0)">
+        <div class="nav-item" :class="{active: page===0, disabled: !canAccessCorePages}" @click="goPage(0)">
           <span class="nav-icon">⚡</span>
           <span class="nav-label">OpenClaw 管理</span>
-          <span v-if="!sysState.openclaw.installed" class="lock-icon" title="请先在设置中安装">🔒</span>
+          <span v-if="!canAccessCorePages" class="lock-icon" title="请先启动 WSL">🔒</span>
         </div>
 
-        <div class="nav-item" :class="{active: page===1, disabled: !sysState.openclaw.installed}" @click="goPage(1)">
+        <div class="nav-item" :class="{active: page===1, disabled: !canAccessCorePages}" @click="goPage(1)">
           <span class="nav-icon">🖥️</span>
           <span class="nav-label">Dashboard 管理</span>
-          <span v-if="!sysState.openclaw.installed" class="lock-icon" title="请先在设置中安装">🔒</span>
+          <span v-if="!canAccessCorePages" class="lock-icon" title="请先启动 WSL">🔒</span>
         </div>
 
-        <div class="nav-item" :class="{active: page===3, disabled: !sysState.openclaw.installed}" @click="goPage(3)">
+        <div class="nav-item" :class="{active: page===3, disabled: !canAccessCorePages}" @click="goPage(3)">
           <span class="nav-icon">🤖</span>
           <span class="nav-label">模型管理</span>
-          <span v-if="!sysState.openclaw.installed" class="lock-icon" title="请先在设置中安装">🔒</span>
+          <span v-if="!canAccessCorePages" class="lock-icon" title="请先启动 WSL">🔒</span>
         </div>
 
-        <div class="nav-item" :class="{active: page===4, disabled: !sysState.openclaw.installed}" @click="goPage(4)">
+        <div class="nav-item" :class="{active: page===4, disabled: !canAccessCorePages}" @click="goPage(4)">
           <span class="nav-icon">🔌</span>
           <span class="nav-label">插件管理</span>
-          <span v-if="!sysState.openclaw.installed" class="lock-icon" title="请先在设置中安装">🔒</span>
+          <span v-if="!canAccessCorePages" class="lock-icon" title="请先启动 WSL">🔒</span>
         </div>
       </div>
 
@@ -102,7 +103,20 @@ async function loadPage(path) {
 }
 
 async function initApp() {
-  const { createApp, ref, reactive, nextTick, provide, inject, onMounted } = Vue
+  const { createApp, ref, reactive, computed, nextTick, provide, inject, onMounted } = Vue
+
+  // 尽早开始探测，与下方 fetch 页面并行；不得在 mount 前 await，否则 [v-cloak] 会一直隐藏整页导致黑屏。
+  const initialStatePromise = (async () => {
+    try {
+      if (window.go && window.go.main && window.go.main.App) {
+        return { ok: true, state: await window.go.main.App.GetInitialState() }
+      }
+      return { ok: false, state: null }
+    } catch (e) {
+      console.error(e)
+      return { ok: false, error: e }
+    }
+  })()
 
   const pages = await Promise.all([
     loadPage('/pages/OpenClawManager.html'),
@@ -122,9 +136,10 @@ async function initApp() {
       const toasts     = ref([])
 
       const sysState = reactive({
-        wsl: { installed: false, distroInstalled: false, version: '', error: '' },
+        wsl: { installed: false, distroInstalled: false, running: false, version: '', error: '' },
         openclaw: { installed: false, version: '', gatewayRunning: false, error: '' }
       })
+      const canAccessCorePages = computed(() => ready.value && sysState.wsl.running)
 
       function moveBlob() {
         nextTick(() => {
@@ -152,10 +167,23 @@ async function initApp() {
       }
 
       function goPage(idx) {
-        if (idx < 4 && idx !== 2 && !sysState.openclaw.installed) {
-          toast('请先在设置中完成 OpenClaw 的安装', 'warning')
-          return
+        // 设置页面始终可访问
+        if (idx === 2) {
+          // 允许访问设置页面
         }
+        // 其他页面只需要 WSL 运行
+        else {
+          if (!ready.value) {
+            toast('Environment check is still running', 'warning')
+            return
+          }
+          // 检查 WSL 是否运行
+          if (!sysState.wsl.running) {
+            toast('请先在设置中启动 WSL', 'warning')
+            return
+          }
+        }
+        
         if (idx === page.value) return
         exitPage.value = page.value
         setTimeout(() => { exitPage.value = -1 }, 300)
@@ -194,22 +222,83 @@ async function initApp() {
       function triggerDashboardWslStopped() {
         if (dashboardWslStoppedFn) dashboardWslStoppedFn()
       }
+      function triggerOpenClawWslStopped() {
+        sysState.openclaw.gatewayRunning = false
+        sysState.openclaw.error = ''
+      }
+      function triggerWslStarted() {
+        sysState.wsl.running = true
+      }
+      function triggerWslStopped() {
+        sysState.wsl.running = false
+      }
+
+      function resolveInitialPage() {
+        page.value = (!sysState.wsl.running || !sysState.openclaw.installed) ? 2 : 0
+      }
+
+      async function recoverBootStateIfWslWasMisdetected() {
+        if (!window.go || !window.go.main || !window.go.main.App) return
+        if (!sysState.wsl.installed || !sysState.wsl.distroInstalled || sysState.wsl.running) return
+
+        for (let attempt = 0; attempt < 4; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 800))
+
+          try {
+            const running = await window.go.main.App.CheckWSLRunning()
+            if (!running) continue
+
+            sysState.wsl.running = true
+
+            const state = await window.go.main.App.GetInitialState()
+            if (state && state.wsl) {
+              sysState.wsl = {
+                ...state.wsl,
+                running: state.wslRunning
+              }
+            }
+            if (state && state.openclaw) {
+              sysState.openclaw = state.openclaw
+            }
+            return
+          } catch (e) {
+            console.error(e)
+          }
+        }
+      }
+
+      const bootTimeoutMs = 25000
 
       onMounted(async () => {
+        let boot = { ok: false, state: null }
         try {
-          // 等待 window.go 对象加载完成
-          if (window.go && window.go.main && window.go.main.App) {
-             const state = await window.go.main.App.GetInitialState()
-             sysState.wsl = state.wsl
-             sysState.openclaw = state.openclaw
-             
-             if (!sysState.openclaw.installed) {
-               page.value = 2 // 强制跳转到设置/安装页面
-             }
+          boot = await Promise.race([
+            initialStatePromise,
+            new Promise((resolve) =>
+              setTimeout(
+                () => resolve({ ok: false, state: null, timedOut: true }),
+                bootTimeoutMs,
+              ),
+            ),
+          ])
+        } catch (e) {
+          console.error(e)
+          boot = { ok: false, state: null, error: e }
+        }
+        if (boot && boot.timedOut) {
+          toast('系统环境检查超时（可能是 WSL 无响应），请先在设置中排查', 'warning')
+        }
+        if (boot && boot.ok && boot.state) {
+          sysState.wsl = {
+            ...boot.state.wsl,
+            running: boot.state.wslRunning
           }
-        } catch(e) {
-             console.error(e)
-             toast('无法连接到后端服务', 'error')
+          sysState.openclaw = boot.state.openclaw
+          await recoverBootStateIfWslWasMisdetected()
+          resolveInitialPage()
+        }
+        if (boot && boot.ok === false && boot.error) {
+          toast('无法连接到后端服务', 'error')
         }
         ready.value = true
         nextTick(() => moveBlob())
@@ -218,7 +307,7 @@ async function initApp() {
       // 监听窗口大小变化以修复悬浮块位置
       window.addEventListener('resize', () => moveBlob())
 
-      const deps = { toast, nextTick, sysState, registerDashboardRefresh, registerDashboardStart, registerDashboardWslStopped, triggerDashboardRefresh, triggerDashboardStart, triggerDashboardWslStopped }
+      const deps = { toast, nextTick, sysState, registerDashboardRefresh, registerDashboardStart, registerDashboardWslStopped, triggerDashboardRefresh, triggerDashboardStart, triggerDashboardWslStopped, triggerOpenClawWslStopped, triggerWslStarted, triggerWslStopped }
       const ctx = {
         sysState, goPage,
         ...pages[0].pageSetup(deps),
@@ -230,7 +319,7 @@ async function initApp() {
 
       provide('ctx', ctx)
 
-      return { ready, page, exitPage, sidebarRef, blobRef, toasts, sysState, goPage }
+      return { ready, page, exitPage, sidebarRef, blobRef, toasts, sysState, canAccessCorePages, goPage }
     }
   })
 

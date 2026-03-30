@@ -1,5 +1,4 @@
 <div>
-  <!-- 标题与操作栏 -->
   <div class="header-with-action">
     <div>
       <h1>模型管理</h1>
@@ -12,106 +11,241 @@
           <span class="switch-text">保存后自动重启网关</span>
         </label>
       </div>
-      <button class="btn btn-primary" @click="showAddModelModal = true">添加模型</button>
+      <button class="btn btn-primary" @click="openAddModelModal">添加模型</button>
     </div>
   </div>
 
-  <!-- 局部美化弹窗：已通过 CSS 偏移修复侧边栏遮挡与定位漂移问题 -->
-    <!-- 本地美化确认对话框 -->
-    <div v-if="confirmState.show" class="modal-overlay confirm-modal-overlay" style="z-index: 10001;">
-      <div class="confirm-modal">
-        <div class="confirm-modal-header">
-          <span class="confirm-icon">⚠️</span>
-          <h3>系统提示</h3>
-        </div>
-        <div class="confirm-modal-body">
-          <p>{{ confirmState.message }}</p>
-        </div>
-        <div class="confirm-modal-footer">
-          <button class="btn btn-outline btn-sm" @click="confirmState.resolve(false)">取消</button>
-          <button class="btn btn-primary btn-sm" @click="confirmState.resolve(true)">确定</button>
-        </div>
+  <div v-if="confirmState.show" class="modal-overlay confirm-modal-overlay" style="z-index: 10001;">
+    <div class="confirm-modal">
+      <div class="confirm-modal-header">
+        <span class="confirm-icon">!</span>
+        <h3>系统提示</h3>
+      </div>
+      <div class="confirm-modal-body">
+        <p>{{ confirmState.message }}</p>
+      </div>
+      <div class="confirm-modal-footer">
+        <button class="btn btn-outline btn-sm" @click="confirmState.resolve(false)">取消</button>
+        <button class="btn btn-primary btn-sm" @click="confirmState.resolve(true)">确定</button>
       </div>
     </div>
+  </div>
 
-    <!-- 本地加载等待窗口 -->
-    <div v-if="showModelsWaitingModal" class="modal-overlay global-loading-overlay" style="z-index: 10000;">
-      <div class="global-loading-modal">
-        <div class="spinner"></div>
-        <h3>正在重启网关...</h3>
-        <p>请稍候，网关正在重启以应用新的模型配置</p>
+  <div v-if="showModelsWaitingModal" class="modal-overlay global-loading-overlay" style="z-index: 10000;">
+    <div class="global-loading-modal">
+      <div class="spinner"></div>
+      <h3>正在重启网关...</h3>
+      <p>请稍候，网关正在重启以应用新的模型配置</p>
+    </div>
+  </div>
+
+  <div v-if="loadingModelsList" class="modal-overlay global-loading-overlay" style="z-index: 10000;">
+    <div class="global-loading-modal">
+      <div class="spinner"></div>
+      <h3>Loading Models...</h3>
+      <p>Please wait while the current model configuration and list are being loaded.</p>
+    </div>
+  </div>
+
+  <div v-if="showAddModelModal" class="modal-overlay" @click="closeModals" style="z-index: 9999;">
+    <div class="modal modal-wide modal-settings" @click.stop>
+      <div class="modal-header">
+        <h2>{{ isEditingModel ? '编辑模型' : '添加模型' }}</h2>
+        <button class="btn-close" @click="closeModals">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form @submit.prevent="saveModel" class="settings-form model-settings-form">
+          <div class="form-group">
+            <label>提供商</label>
+            <div class="catalog-select">
+              <button
+                type="button"
+                class="catalog-select-trigger"
+                :class="{ open: providerDropdownOpen }"
+                @click="toggleProviderDropdown"
+              >
+                <span class="catalog-select-text">{{ selectedProviderLabel }}</span>
+                <span class="catalog-select-arrow">▾</span>
+              </button>
+              <div v-if="providerDropdownOpen" class="catalog-select-panel">
+                <div class="catalog-select-list">
+                  <button
+                    v-for="option in providerOptions"
+                    :key="option.value"
+                    type="button"
+                    class="catalog-option"
+                    :class="{ active: currentModel.provider === option.value }"
+                    @click="selectProvider(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <select v-if="false" v-model="currentModel.provider" :class="{ 'input-error': formErrors.provider }">
+              <option value="nvidia">NVIDIA</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="google">Google</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="other">其他</option>
+            </select>
+            <div v-if="formErrors.provider" class="field-error-msg"><span class="field-error-icon">▲</span> 请选择提供商</div>
+          </div>
+
+          <div class="form-group">
+            <label>服务地址</label>
+            <input
+              type="text"
+              v-model="currentModel.baseUrl"
+              :class="{ 'input-error': formErrors.baseUrl }"
+              :placeholder="baseUrlPlaceholder"
+            >
+            <div v-if="formErrors.baseUrl" class="field-error-msg"><span class="field-error-icon">▲</span> 请输入服务地址</div>
+          </div>
+
+          <div class="form-group">
+            <label>API Key</label>
+            <input
+              type="text"
+              v-model="currentModel.apiKey"
+              :class="{ 'input-error': formErrors.apiKey }"
+              :placeholder="apiKeyPlaceholder"
+            >
+            <div v-if="formErrors.apiKey" class="field-error-msg"><span class="field-error-icon">▲</span> 请输入 API Key</div>
+          </div>
+
+          <div class="form-group" v-if="providerSupportsCatalog">
+            <label>官方模型目录</label>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                @click="loadProviderCatalog"
+                :disabled="loadingCatalog"
+              >
+                {{ loadingCatalog ? '拉取中...' : '从官方获取模型列表' }}
+              </button>
+              <button
+                v-if="providerDocsUrl"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="openProviderDocs"
+              >
+                打开官方文档
+              </button>
+              <button
+                v-if="providerModelsCatalogUrl"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="openProviderModelsCatalog"
+              >
+                浏览 NVIDIA 模型
+              </button>
+            </div>
+            <div v-if="catalogError" class="field-error-msg"><span class="field-error-icon">▲</span> {{ catalogError }}</div>
+            <div v-if="availableModels.length > 0" class="catalog-select">
+              <button
+                type="button"
+                class="catalog-select-trigger"
+                :class="{ open: catalogDropdownOpen }"
+                @click="toggleCatalogDropdown"
+              >
+                <span class="catalog-select-text">{{ selectedCatalogModelLabel }}</span>
+                <span class="catalog-select-arrow">▾</span>
+              </button>
+              <div v-if="catalogDropdownOpen" class="catalog-select-panel">
+                <input
+                  type="text"
+                  v-model="catalogSearch"
+                  class="catalog-search-input"
+                  placeholder="搜索模型名称或 ID"
+                >
+                <div class="catalog-select-list">
+                  <button
+                    type="button"
+                    class="catalog-option"
+                    :class="{ active: selectedCatalogModelId === '' }"
+                    @click="selectCatalogModel(null)"
+                  >
+                    请选择官方模型
+                  </button>
+                  <button
+                    v-for="model in filteredAvailableModels"
+                    :key="model.id"
+                    type="button"
+                    class="catalog-option"
+                    :class="{ active: selectedCatalogModelId === model.id }"
+                    @click="selectCatalogModel(model)"
+                  >
+                    {{ model.name }} / {{ model.id }}
+                  </button>
+                  <div v-if="filteredAvailableModels.length === 0" class="catalog-option-empty">
+                    没有匹配的模型
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else-if="catalogLoaded && !loadingCatalog" class="subtitle" style="margin-top:8px;">
+              当前接口没有返回可用模型，可以继续手动填写。
+            </div>
+            <div class="subtitle" style="margin-top:8px;">
+              已按最新官方文档接入：NVIDIA 官方 LLM API 目录、OpenAI `GET /v1/models`、Anthropic `GET /v1/models`、Google `models.list`、DeepSeek `GET /models`。
+            </div>
+          </div>
+
+          <div class="form-group" v-else>
+            <label>录入方式</label>
+            <div class="subtitle">当前提供商保持手动录入，NVIDIA 与其他自定义兼容现有方式。</div>
+          </div>
+
+          <div class="form-group">
+            <label>模型型号</label>
+            <input
+              type="text"
+              v-model="currentModel.id"
+              :class="{ 'input-error': formErrors.id }"
+              :placeholder="modelIdPlaceholder"
+            >
+            <div v-if="formErrors.id" class="field-error-msg"><span class="field-error-icon">▲</span> 请输入模型型号</div>
+          </div>
+
+          <div class="form-group">
+            <label>模型名称</label>
+            <input
+              type="text"
+              v-model="currentModel.name"
+              :class="{ 'input-error': formErrors.name }"
+              :placeholder="modelNamePlaceholder"
+            >
+            <div v-if="formErrors.name" class="field-error-msg"><span class="field-error-icon">▲</span> 请输入模型名称</div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="closeModals">取消</button>
+            <button type="submit" class="btn btn-primary">保存</button>
+          </div>
+        </form>
       </div>
     </div>
+  </div>
 
-    <!-- 添加/编辑模型模态框 -->
-    <div v-if="showAddModelModal" class="modal-overlay" @click="closeModals" style="z-index: 9999;">
-      <div class="modal" @click.stop>
-        <div class="modal-header">
-          <h2>{{ isEditingModel ? '编辑模型' : '添加模型' }}</h2>
-          <button class="btn-close" @click="closeModals">&times;</button>
-        </div>
-        <div class="modal-body">
-          <form @submit.prevent="saveModel">
-            <div class="form-group">
-              <label>提供商</label>
-              <select v-model="currentModel.provider" :class="{ 'input-error': formErrors.provider }">
-                <option value="nvidia">NVIDIA</option>
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="google">Google</option>
-                <option value="deepseek">DeepSeek</option>
-                <option value="other">其他</option>
-              </select>
-              <div v-if="formErrors.provider" class="field-error-msg"><span class="field-error-icon">▸</span> 请选择提供商</div>
-            </div>
-            <div class="form-group">
-              <label>服务器地址</label>
-              <input type="text" v-model="currentModel.baseUrl" :class="{ 'input-error': formErrors.baseUrl }" placeholder="例如: https://integrate.api.nvidia.com/v1">
-              <div v-if="formErrors.baseUrl" class="field-error-msg"><span class="field-error-icon">▸</span> 请输入服务器地址</div>
-            </div>
-            <div class="form-group">
-              <label>API Key</label>
-              <input type="text" v-model="currentModel.apiKey" :class="{ 'input-error': formErrors.apiKey }" placeholder="例如: nvapi-...">
-              <div v-if="formErrors.apiKey" class="field-error-msg"><span class="field-error-icon">▸</span> 请输入 API Key</div>
-            </div>
-            <div class="form-group">
-              <label>模型型号</label>
-              <input type="text" v-model="currentModel.id" :class="{ 'input-error': formErrors.id }" placeholder="例如: qwen/qwen3.5-397b-a17b">
-              <div v-if="formErrors.id" class="field-error-msg"><span class="field-error-icon">▸</span> 请输入模型型号</div>
-            </div>
-            <div class="form-group">
-              <label>模型名称</label>
-              <input type="text" v-model="currentModel.name" :class="{ 'input-error': formErrors.name }" placeholder="例如: Qwen3.5 397B A17B (NVIDIA)">
-              <div v-if="formErrors.name" class="field-error-msg"><span class="field-error-icon">▸</span> 请输入模型名称</div>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" @click="closeModals">取消</button>
-              <button type="submit" class="btn btn-primary">保存</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-
-  <!-- 模型列表 -->
   <div class="card">
     <h2>已添加模型</h2>
-    
+
     <div class="model-grid">
       <div v-if="allModels.length === 0" class="empty-state">
-        <p>暂无模型，请点击"添加模型"按钮添加</p>
+        <p>暂无模型，请点击"添加模型"按钮开始配置。</p>
       </div>
-      
+
       <div v-for="(model, index) in allModels" :key="index" class="model-card">
-        <!-- 左侧：徽章图标 + 提供商标签 -->
         <div class="model-card-side">
           <div class="model-avatar" :data-provider="model.provider.toLowerCase()">
-            <span>{{ model.provider.slice(0,2).toUpperCase() }}</span>
+            <span>{{ model.provider.slice(0, 2).toUpperCase() }}</span>
           </div>
           <span class="model-provider-badge">{{ model.provider.toUpperCase() }}</span>
         </div>
 
-        <!-- 中间：主要信息 -->
         <div class="model-card-body">
           <div class="model-card-name" :title="model.name">{{ model.name }}</div>
           <div class="model-card-id" :title="model.id">
@@ -129,7 +263,6 @@
           </div>
         </div>
 
-        <!-- 右侧：操作按钮 -->
         <div class="model-card-actions">
           <button class="btn btn-sm btn-outline" @click="editModel(model)">修改</button>
           <button class="btn btn-sm btn-danger" @click="deleteModel(model.provider, model.id)">删除</button>
@@ -140,63 +273,148 @@
 </div>
 
 <script page-setup>
-  // 使用 Vue 原始对象以增强在 new Function 动态加载环境下的稳定性
-  const { ref, reactive, computed, onMounted } = Vue
+  const { ref, reactive, computed, onMounted, watch } = Vue
 
   function pageSetup(deps) {
+    const PROVIDER_META = {
+      nvidia: {
+        baseUrl: 'https://integrate.api.nvidia.com/v1',
+        api: 'openai-completions',
+        apiKeyPlaceholder: '例如: nvapi-...',
+        modelIdPlaceholder: '例如: qwen/qwen3.5-397b-a17b',
+        modelNamePlaceholder: '例如: Qwen3.5 397B A17B (NVIDIA)',
+        docsUrl: 'https://docs.api.nvidia.com/nim/reference/llm-apis',
+        modelsCatalogUrl: 'https://build.nvidia.com/models'
+      },
+      openai: {
+        baseUrl: 'https://api.openai.com/v1',
+        api: 'openai-completions',
+        apiKeyPlaceholder: '例如: sk-proj-...',
+        modelIdPlaceholder: '例如: gpt-5.2',
+        modelNamePlaceholder: '例如: GPT-5.2',
+        docsUrl: 'https://platform.openai.com/docs/api-reference/models/list'
+      },
+      anthropic: {
+        baseUrl: 'https://api.anthropic.com',
+        api: 'anthropic-messages',
+        apiKeyPlaceholder: '例如: sk-ant-...',
+        modelIdPlaceholder: '例如: claude-sonnet-4-20250514',
+        modelNamePlaceholder: '例如: Claude Sonnet 4',
+        docsUrl: 'https://docs.anthropic.com/en/api/models-list'
+      },
+      google: {
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+        api: 'google-generative-ai',
+        apiKeyPlaceholder: '例如: AIza...',
+        modelIdPlaceholder: '例如: gemini-2.5-pro',
+        modelNamePlaceholder: '例如: Gemini 2.5 Pro',
+        docsUrl: 'https://ai.google.dev/api/rest/generativelanguage/models/list'
+      },
+      deepseek: {
+        baseUrl: 'https://api.deepseek.com',
+        api: 'openai-completions',
+        apiKeyPlaceholder: '例如: sk-...',
+        modelIdPlaceholder: '例如: deepseek-chat',
+        modelNamePlaceholder: '例如: DeepSeek Chat',
+        docsUrl: 'https://api-docs.deepseek.com/api/list-models'
+      },
+      other: {
+        baseUrl: '',
+        api: 'openai-completions',
+        apiKeyPlaceholder: '例如: your-api-key',
+        modelIdPlaceholder: '例如: custom-model-id',
+        modelNamePlaceholder: '例如: Custom Model',
+        docsUrl: ''
+      }
+    }
+
+    const CATALOG_PROVIDERS = ['nvidia', 'openai', 'anthropic', 'google', 'deepseek']
+
     const modelsConfig = ref({
       mode: 'merge',
       providers: {}
     })
-    
+
     const showAddModelModal = ref(false)
     const isEditingModel = ref(false)
     const originalModelId = ref('')
+    const originalProviderName = ref('')
     const showModelsWaitingModal = ref(false)
+    const loadingModelsList = ref(false)
     const autoRestartEnabled = ref(true)
 
-    const formErrors = Vue.reactive({
-      provider: false, baseUrl: false, apiKey: false, id: false, name: false
+    const availableModels = ref([])
+    const selectedCatalogModelId = ref('')
+    const providerDropdownOpen = ref(false)
+    const catalogDropdownOpen = ref(false)
+    const catalogSearch = ref('')
+    const loadingCatalog = ref(false)
+    const catalogError = ref('')
+    const catalogLoaded = ref(false)
+
+    const formErrors = reactive({
+      provider: false,
+      baseUrl: false,
+      apiKey: false,
+      id: false,
+      name: false
     })
 
-    function clearFormErrors() {
-      formErrors.provider = false
-      formErrors.baseUrl = false
-      formErrors.apiKey = false
-      formErrors.id = false
-      formErrors.name = false
-    }
-
-    // 本地确认对话框状态
-    const confirmState = Vue.reactive({
+    const confirmState = reactive({
       show: false,
       message: '',
       resolve: null
     })
 
-    function showConfirm(message) {
-      confirmState.message = message
-      confirmState.show = true
-      return new Promise((resolve) => {
-        confirmState.resolve = (result) => {
-          confirmState.show = false
-          resolve(result)
-        }
-      })
-    }
     const currentModel = ref({
       provider: 'nvidia',
-      baseUrl: '',
+      baseUrl: PROVIDER_META.nvidia.baseUrl,
       apiKey: '',
       id: '',
       name: ''
     })
 
-    // 计算所有模型的列表
+    const providerMeta = computed(() => PROVIDER_META[currentModel.value.provider] || PROVIDER_META.other)
+    const providerOptions = computed(() => ([
+      { value: 'nvidia', label: 'NVIDIA' },
+      { value: 'openai', label: 'OpenAI' },
+      { value: 'anthropic', label: 'Anthropic' },
+      { value: 'google', label: 'Google' },
+      { value: 'deepseek', label: 'DeepSeek' },
+      { value: 'other', label: 'Other' }
+    ]))
+    const selectedProviderLabel = computed(() => {
+      const selected = providerOptions.value.find(option => option.value === currentModel.value.provider)
+      return selected ? selected.label : 'Select Provider'
+    })
+    const providerSupportsCatalog = computed(() => CATALOG_PROVIDERS.includes(currentModel.value.provider))
+    const providerDocsUrl = computed(() => providerMeta.value.docsUrl || '')
+    const providerModelsCatalogUrl = computed(() => providerMeta.value.modelsCatalogUrl || '')
+    const baseUrlPlaceholder = computed(() => providerMeta.value.baseUrl || '例如: https://your-api.example/v1')
+    const apiKeyPlaceholder = computed(() => providerMeta.value.apiKeyPlaceholder)
+    const modelIdPlaceholder = computed(() => providerMeta.value.modelIdPlaceholder)
+    const modelNamePlaceholder = computed(() => providerMeta.value.modelNamePlaceholder)
+    const filteredAvailableModels = computed(() => {
+      const keyword = catalogSearch.value.trim().toLowerCase()
+      if (!keyword) return availableModels.value
+      return availableModels.value.filter(model => {
+        const haystack = `${model.name || ''} ${model.id || ''}`.toLowerCase()
+        return haystack.includes(keyword)
+      })
+    })
+    const selectedCatalogModelLabel = computed(() => {
+      if (!selectedCatalogModelId.value) return '请选择官方模型'
+      const selected = findCatalogModelById(selectedCatalogModelId.value)
+      if (!selected) return '请选择官方模型'
+      return `${selected.name} / ${selected.id}`
+    })
+
     const allModels = computed(() => {
       const models = []
-      for (const [providerName, provider] of Object.entries(modelsConfig.value.providers)) {
-        for (const model of provider.models) {
+      const providers = modelsConfig.value.providers || {}
+      for (const [providerName, provider] of Object.entries(providers)) {
+        const providerModels = Array.isArray(provider.models) ? provider.models : []
+        for (const model of providerModels) {
           models.push({
             ...model,
             provider: providerName,
@@ -208,30 +426,149 @@
       return models
     })
 
+    function clearFormErrors() {
+      formErrors.provider = false
+      formErrors.baseUrl = false
+      formErrors.apiKey = false
+      formErrors.id = false
+      formErrors.name = false
+    }
+
+    function resetCatalogState() {
+      availableModels.value = []
+      selectedCatalogModelId.value = ''
+      providerDropdownOpen.value = false
+      catalogDropdownOpen.value = false
+      catalogSearch.value = ''
+      loadingCatalog.value = false
+      catalogError.value = ''
+      catalogLoaded.value = false
+    }
+
+    function resetCurrentModel(provider = 'nvidia') {
+      const meta = PROVIDER_META[provider] || PROVIDER_META.other
+      currentModel.value = {
+        provider,
+        baseUrl: meta.baseUrl,
+        apiKey: '',
+        id: '',
+        name: ''
+      }
+    }
+
+    function applyProviderDefaults(newProvider, oldProvider) {
+      const nextMeta = PROVIDER_META[newProvider] || PROVIDER_META.other
+      const prevMeta = PROVIDER_META[oldProvider] || {}
+      const currentBaseUrl = (currentModel.value.baseUrl || '').trim()
+
+      if (!currentBaseUrl || currentBaseUrl === prevMeta.baseUrl) {
+        currentModel.value.baseUrl = nextMeta.baseUrl
+      }
+
+      if (!isEditingModel.value) {
+        currentModel.value.id = ''
+        currentModel.value.name = ''
+      }
+
+      resetCatalogState()
+    }
+
+    function getProviderAPI(provider) {
+      return (PROVIDER_META[provider] || PROVIDER_META.other).api
+    }
+
+    function findCatalogModelById(id) {
+      return availableModels.value.find(model => model.id === id) || null
+    }
+
+    function toggleCatalogDropdown() {
+      catalogDropdownOpen.value = !catalogDropdownOpen.value
+      if (catalogDropdownOpen.value) {
+        providerDropdownOpen.value = false
+        catalogSearch.value = ''
+      }
+    }
+
+    function toggleProviderDropdown() {
+      providerDropdownOpen.value = !providerDropdownOpen.value
+      if (providerDropdownOpen.value) {
+        catalogDropdownOpen.value = false
+      }
+    }
+
+    function selectProvider(provider) {
+      currentModel.value.provider = provider
+      providerDropdownOpen.value = false
+    }
+
+    function selectCatalogModel(model) {
+      if (!model) {
+        selectedCatalogModelId.value = ''
+        catalogDropdownOpen.value = false
+        return
+      }
+      selectedCatalogModelId.value = model.id
+      applyCatalogSelection()
+      catalogDropdownOpen.value = false
+    }
+
+    function buildModelData() {
+      const selectedModel = findCatalogModelById(currentModel.value.id)
+      return {
+        id: currentModel.value.id.trim(),
+        name: currentModel.value.name.trim(),
+        reasoning: selectedModel ? !!selectedModel.reasoning : true,
+        input: selectedModel && Array.isArray(selectedModel.input) && selectedModel.input.length > 0 ? selectedModel.input : ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: selectedModel && selectedModel.contextWindow ? selectedModel.contextWindow : 131072,
+        maxTokens: selectedModel && selectedModel.maxTokens ? selectedModel.maxTokens : 16384
+      }
+    }
+
+    async function showConfirm(message) {
+      confirmState.message = message
+      confirmState.show = true
+      return new Promise((resolve) => {
+        confirmState.resolve = (result) => {
+          confirmState.show = false
+          resolve(result)
+        }
+      })
+    }
+
     async function loadModelsConfig() {
+      loadingModelsList.value = true
       try {
         if (window.go && window.go.main && window.go.main.App) {
           const config = await window.go.main.App.GetModelsConfig()
-          modelsConfig.value = config
+          modelsConfig.value = {
+            mode: config.mode || 'merge',
+            providers: config.providers || {}
+          }
         }
       } catch (e) {
         console.error('Failed to load models config:', e)
         deps.toast('加载模型配置失败', 'error')
+      } finally {
+        loadingModelsList.value = false
       }
     }
 
     async function saveModelsConfig() {
       try {
         if (window.go && window.go.main && window.go.main.App) {
-          await window.go.main.App.SaveModelsConfig(modelsConfig.value)
-          deps.toast('模型配置已保存', 'success')
-          
-          // 如果自动重启开关开启，重启网关
+          const result = await window.go.main.App.SaveModelsConfig(modelsConfig.value)
+          if (result && result.ok === false) {
+            throw new Error(result.error || 'save models config failed')
+          }
+
+          deps.toast('Models configuration saved', 'success')
+
           if (autoRestartEnabled.value) {
             showModelsWaitingModal.value = true
             try {
               await window.go.main.App.RestartGateway()
-              deps.toast('网关已成功重启', 'success')
+              deps.toast('Gateway restarted successfully', 'success')
             } catch (e) {
               console.error('Failed to restart gateway:', e)
               deps.toast('网关重启失败', 'warning')
@@ -246,13 +583,110 @@
       }
     }
 
+    function openAddModelModal() {
+      isEditingModel.value = false
+      originalModelId.value = ''
+      originalProviderName.value = ''
+      clearFormErrors()
+      resetCatalogState()
+      resetCurrentModel('nvidia')
+      showAddModelModal.value = true
+    }
+
+    function openProviderDocs() {
+      if (!providerDocsUrl.value) return
+      if (window.go && window.go.main && window.go.main.App) {
+        window.go.main.App.OpenURL(providerDocsUrl.value)
+      }
+    }
+
+    function openProviderModelsCatalog() {
+      if (!providerModelsCatalogUrl.value) return
+      if (window.go && window.go.main && window.go.main.App) {
+        window.go.main.App.OpenURL(providerModelsCatalogUrl.value)
+      }
+    }
+
+    async function loadProviderCatalog() {
+      catalogError.value = ''
+      catalogLoaded.value = false
+
+      if (!providerSupportsCatalog.value) {
+        return
+      }
+
+      if (!currentModel.value.baseUrl.trim()) {
+        formErrors.baseUrl = true
+        deps.toast('Please enter the base URL first', 'warning')
+        return
+      }
+
+      if (currentModel.value.provider !== 'nvidia' && !currentModel.value.apiKey.trim()) {
+        formErrors.apiKey = true
+        deps.toast('请先填写 API Key', 'warning')
+        return
+      }
+
+      loadingCatalog.value = true
+
+      try {
+        const res = await window.go.main.App.GetProviderCatalog(
+          currentModel.value.provider,
+          currentModel.value.baseUrl,
+          currentModel.value.apiKey
+        )
+
+        if (!res || res.ok === false) {
+          throw new Error(res && res.error ? res.error : '拉取模型目录失败')
+        }
+
+        currentModel.value.baseUrl = res.baseUrl || currentModel.value.baseUrl
+        availableModels.value = Array.isArray(res.models) ? res.models : []
+        catalogDropdownOpen.value = false
+        catalogSearch.value = ''
+        catalogLoaded.value = true
+
+        if (!availableModels.value.length) {
+          deps.toast('Connected to the provider catalog, but no models were returned', 'warning')
+          return
+        }
+
+        deps.toast(`Loaded ${availableModels.value.length} official models`, 'success')
+
+        const currentId = currentModel.value.id.trim()
+        const matched = currentId ? findCatalogModelById(currentId) : null
+        if (matched) {
+          selectedCatalogModelId.value = matched.id
+          applyCatalogSelection()
+        }
+      } catch (e) {
+        console.error('Failed to load provider catalog:', e)
+        const message = e && e.message ? e.message : '拉取模型目录失败'
+        catalogError.value = message
+        deps.toast(message, 'error')
+      } finally {
+        loadingCatalog.value = false
+      }
+    }
+
+    function applyCatalogSelection() {
+      const selected = findCatalogModelById(selectedCatalogModelId.value)
+      if (!selected) return
+
+      currentModel.value.id = selected.id
+      currentModel.value.name = selected.name || selected.id
+    }
+
     function editModel(model) {
       isEditingModel.value = true
       originalModelId.value = model.id
+      originalProviderName.value = model.provider
+      clearFormErrors()
+      resetCatalogState()
       currentModel.value = {
         provider: model.provider,
-        baseUrl: model.baseUrl,
-        apiKey: model.apiKey,
+        baseUrl: model.baseUrl || (PROVIDER_META[model.provider] || PROVIDER_META.other).baseUrl,
+        apiKey: model.apiKey || '',
         id: model.id,
         name: model.name
       }
@@ -260,103 +694,96 @@
     }
 
     async function saveModel() {
-      // 自定义校验
       clearFormErrors()
+
       const m = currentModel.value
       let hasError = false
-      if (!m.provider)  { formErrors.provider = true; hasError = true }
-      if (!m.baseUrl.trim()) { formErrors.baseUrl  = true; hasError = true }
-      if (!m.apiKey.trim()) { formErrors.apiKey   = true; hasError = true }
-      if (!m.id.trim())     { formErrors.id       = true; hasError = true }
-      if (!m.name.trim())   { formErrors.name     = true; hasError = true }
+      if (!m.provider) { formErrors.provider = true; hasError = true }
+      if (!m.baseUrl.trim()) { formErrors.baseUrl = true; hasError = true }
+      if (!m.apiKey.trim()) { formErrors.apiKey = true; hasError = true }
+      if (!m.id.trim()) { formErrors.id = true; hasError = true }
+      if (!m.name.trim()) { formErrors.name = true; hasError = true }
       if (hasError) return
 
-      const providerName = currentModel.value.provider
-      const modelData = {
-        id: currentModel.value.id,
-        name: currentModel.value.name,
-        reasoning: true,
-        input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 131072,
-        maxTokens: 16384
-      }
+      const providerName = m.provider
+      const modelData = buildModelData()
 
-      // 检查提供商是否已存在
       if (!modelsConfig.value.providers[providerName]) {
-        // 创建新提供商
         modelsConfig.value.providers[providerName] = {
-          baseUrl: currentModel.value.baseUrl,
-          apiKey: currentModel.value.apiKey,
-          api: 'openai-completions',
+          baseUrl: m.baseUrl.trim(),
+          apiKey: m.apiKey.trim(),
+          api: getProviderAPI(providerName),
           models: []
         }
       } else {
-        // 更新现有提供商的配置
-        modelsConfig.value.providers[providerName].baseUrl = currentModel.value.baseUrl
-        modelsConfig.value.providers[providerName].apiKey = currentModel.value.apiKey
+        modelsConfig.value.providers[providerName].baseUrl = m.baseUrl.trim()
+        modelsConfig.value.providers[providerName].apiKey = m.apiKey.trim()
+        modelsConfig.value.providers[providerName].api = getProviderAPI(providerName)
+        if (!Array.isArray(modelsConfig.value.providers[providerName].models)) {
+          modelsConfig.value.providers[providerName].models = []
+        }
       }
 
-      // 检查模型是否已存在
-      const provider = modelsConfig.value.providers[providerName]
-      let modelIndex = -1
-      
-      if (isEditingModel.value) {
-        // 编辑模式：查找原始模型ID
-        modelIndex = provider.models.findIndex(m => m.id === originalModelId.value)
-      } else {
-        // 添加模式：查找当前模型ID
-        modelIndex = provider.models.findIndex(m => m.id === modelData.id)
-      }
-      
-      if (modelIndex >= 0) {
-        // 如果是编辑模式且模型ID发生了变化，需要先删除旧模型
-        if (isEditingModel.value && originalModelId.value !== modelData.id) {
-          provider.models = provider.models.filter(m => m.id !== originalModelId.value)
-          // 添加新模型
-          provider.models.push(modelData)
-        } else {
-          // 更新现有模型
-          provider.models[modelIndex] = modelData
+      if (isEditingModel.value && originalProviderName.value && originalProviderName.value !== providerName) {
+        const oldProvider = modelsConfig.value.providers[originalProviderName.value]
+        if (oldProvider && Array.isArray(oldProvider.models)) {
+          oldProvider.models = oldProvider.models.filter(item => item.id !== originalModelId.value)
+          if (oldProvider.models.length === 0) {
+            delete modelsConfig.value.providers[originalProviderName.value]
+          }
         }
+      }
+
+      const provider = modelsConfig.value.providers[providerName]
+      const lookupId = isEditingModel.value && originalProviderName.value === providerName
+        ? originalModelId.value
+        : modelData.id
+      const modelIndex = provider.models.findIndex(item => item.id === lookupId)
+
+      if (modelIndex >= 0) {
+        provider.models[modelIndex] = modelData
       } else {
-        // 添加新模型
         provider.models.push(modelData)
       }
-      
+
       await saveModelsConfig()
       closeModals()
     }
 
     async function deleteModel(providerName, modelId) {
-      if (await showConfirm('确定要删除这个模型吗？')) {
-        const provider = modelsConfig.value.providers[providerName]
-        if (provider) {
-          provider.models = provider.models.filter(m => m.id !== modelId)
-          
-          // 如果提供商没有模型了，删除提供商
-          if (provider.models.length === 0) {
-            delete modelsConfig.value.providers[providerName]
-          }
-          
-          saveModelsConfig()
-        }
+      if (!(await showConfirm('确定要删除这个模型吗？'))) {
+        return
       }
+
+      const provider = modelsConfig.value.providers[providerName]
+      if (!provider || !Array.isArray(provider.models)) {
+        return
+      }
+
+      provider.models = provider.models.filter(item => item.id !== modelId)
+      if (provider.models.length === 0) {
+        delete modelsConfig.value.providers[providerName]
+      }
+
+      await saveModelsConfig()
     }
 
     function closeModals() {
       showAddModelModal.value = false
       isEditingModel.value = false
       originalModelId.value = ''
+      originalProviderName.value = ''
       clearFormErrors()
-      currentModel.value = {
-        provider: 'nvidia',
-        baseUrl: '',
-        apiKey: '',
-        id: '',
-        name: ''
-      }
+      resetCatalogState()
+      resetCurrentModel('nvidia')
     }
+
+    watch(() => currentModel.value.provider, (newProvider, oldProvider) => {
+      if (!showAddModelModal.value || !newProvider || newProvider === oldProvider) {
+        return
+      }
+      applyProviderDefaults(newProvider, oldProvider)
+    })
 
     onMounted(() => {
       loadModelsConfig()
@@ -367,15 +794,44 @@
       showAddModelModal,
       isEditingModel,
       currentModel,
+      providerOptions,
+      selectedProviderLabel,
       allModels,
       editModel,
       saveModel,
       deleteModel,
       closeModals,
       showModelsWaitingModal,
+      loadingModelsList,
       confirmState,
       autoRestartEnabled,
-      formErrors
+      formErrors,
+      openAddModelModal,
+      providerSupportsCatalog,
+      providerDocsUrl,
+      providerModelsCatalogUrl,
+      baseUrlPlaceholder,
+      apiKeyPlaceholder,
+      modelIdPlaceholder,
+      modelNamePlaceholder,
+      availableModels,
+      filteredAvailableModels,
+      selectedCatalogModelId,
+      providerDropdownOpen,
+      selectedCatalogModelLabel,
+      catalogDropdownOpen,
+      catalogSearch,
+      loadingCatalog,
+      catalogError,
+      catalogLoaded,
+      loadProviderCatalog,
+      applyCatalogSelection,
+      openProviderDocs,
+      openProviderModelsCatalog,
+      toggleProviderDropdown,
+      selectProvider,
+      toggleCatalogDropdown,
+      selectCatalogModel
     }
   }
 </script>

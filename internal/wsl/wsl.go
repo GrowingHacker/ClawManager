@@ -102,15 +102,119 @@ func (m *Manager) CheckWSL() WSLInfo {
 	}
 }
 
-// CheckWSLRunning 如果当前有活跃的 WSL 进程则返回 true
+// ProbeForInitialLoad 在一次调用中返回 WSL 信息与是否有会话在运行（与 CheckWSL + CheckWSLRunning 语义一致），
+// 供 GetInitialState 传入 OpenClaw 检测，从而省去 CheckOpenClaw 内重复的 `wsl --list --running`。
+// 设置页等路径仍使用 CheckWSL / CheckWSLRunning 分项 API。
+//
+// 修复 1：不再使用 wsl --status 等会唤醒 WSL 虚拟机的命令，
+// 改用 wsl --list --running 直接检测是否有会话在运行，避免关闭 WSL 后立即检测时的假阳性。
+//
+// 修复 2：在 WSL 未运行时也检查已安装的发行版（wsl --list --quiet 不会唤醒虚拟机），
+// 避免前端错误显示"安装 Ubuntu"按钮。
+func (m *Manager) ProbeForInitialLoad() (WSLInfo, bool) {
+	// 先用 wsl --list --running 检测是否有活跃的 WSL 会话（不会唤醒虚拟机）
+	cmdRun := exec.Command("wsl", "--list", "--running", "--quiet")
+	cmdRun.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	outRun, err := cmdRun.CombinedOutput()
+	cleanRun := strings.ReplaceAll(string(outRun), "\x00", "")
+	anyRunning := err == nil && strings.TrimSpace(cleanRun) != ""
+
+	// 如果没有会话在运行，直接返回未运行状态
+	if !anyRunning {
+		// 检查 WSL 是否安装（使用 wsl --version，不会启动虚拟机）
+		cmdVersion := exec.Command("wsl", "--version")
+		cmdVersion.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		_, err := cmdVersion.CombinedOutput()
+		installed := err == nil
+
+		if !installed {
+			return WSLInfo{
+				Installed:       false,
+				DistroInstalled: false,
+				Version:         "WSL 未安装或未启用",
+			}, false
+		}
+
+		// WSL 已安装但未运行，检查已安装的发行版（wsl --list --quiet 不会唤醒虚拟机）
+		cmdQuiet := exec.Command("wsl", "--list", "--quiet")
+		cmdQuiet.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		outQuiet, _ := cmdQuiet.CombinedOutput()
+		cleanQuiet := strings.ReplaceAll(string(outQuiet), "\x00", "")
+		distroInstalled := strings.Contains(strings.ToLower(cleanQuiet), "ubuntu")
+
+		statusMsg := "WSL 已安装（未运行）"
+		if distroInstalled {
+			statusMsg = "WSL 已安装，Ubuntu 已就绪"
+		}
+
+		// WSL 已安装但未运行
+		return WSLInfo{
+			Installed:       true,
+			DistroInstalled: distroInstalled,
+			Version:         statusMsg,
+		}, false
+	}
+
+	// 有会话在运行，执行详细检查
+	cmd := exec.Command("wsl", "--status")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	_, err = cmd.CombinedOutput()
+
+	installed := true
+	if err != nil {
+		cmd2 := exec.Command("wsl", "--version")
+		cmd2.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		_, err = cmd2.CombinedOutput()
+		if err != nil {
+			installed = false
+		}
+	}
+
+	if !installed {
+		return WSLInfo{
+			Installed:       false,
+			DistroInstalled: false,
+			Version:         "WSL 未安装或未启用",
+		}, false
+	}
+
+	// 检查发行版安装情况
+	cmdQuiet := exec.Command("wsl", "--list", "--quiet")
+	cmdQuiet.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	outQuiet, _ := cmdQuiet.CombinedOutput()
+	cleanQuiet := strings.ReplaceAll(string(outQuiet), "\x00", "")
+	distroInstalled := strings.Contains(strings.ToLower(cleanQuiet), "ubuntu")
+
+	statusMsg := "系统已安装并启用 WSL"
+	if !distroInstalled {
+		statusMsg = "WSL 已安装，但尚未安装 Ubuntu 发行版"
+	}
+
+	return WSLInfo{
+		Installed:       true,
+		DistroInstalled: distroInstalled,
+		Version:         statusMsg,
+	}, true
+}
+
+// CheckWSLRunning 检查是否有活跃的 WSL 发行版 session 正在运行。
+//
+// 修复：原实现用 tasklist 查找 wsl.exe 进程，但 CheckWSL() 中执行
+// `wsl --status` / `wsl --list --quiet` 等管理命令本身会短暂留下 wsl.exe，
+// 导致 Settings 页面随后调用此函数时读到假阳性，将 wslRunning 误置为 true。
+//
+// 改用 `wsl --list --running --quiet`：该命令只输出当前有活跃 Linux session
+// 的发行版名称，若无任何 session 则输出为空，彻底与"wsl.exe 曾被调用"解耦。
 func (m *Manager) CheckWSLRunning() bool {
-	cmd := exec.Command("tasklist", "/FI", "IMAGENAME eq wsl.exe", "/NH")
+	cmd := exec.Command("wsl", "--list", "--running", "--quiet")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(string(out)), "wsl.exe")
+	// 去除 UTF-16 空字节后判断是否有内容
+	cleanOut := strings.ReplaceAll(string(out), "\x00", "")
+	return strings.TrimSpace(cleanOut) != ""
 }
 
 // StopWSL 关闭所有正在运行的 WSL 实例

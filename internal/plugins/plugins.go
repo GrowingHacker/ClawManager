@@ -14,12 +14,30 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+type FeishuConfig struct {
+	Enabled           bool   `json:"enabled"`
+	AccountID         string `json:"accountId"`
+	AppID             string `json:"appId"`
+	AppSecret         string `json:"appSecret"`
+	BotName           string `json:"botName"`
+	Domain            string `json:"domain"`
+	ConnectionMode    string `json:"connectionMode"`
+	DMPolicy          string `json:"dmPolicy"`
+	VerificationToken string `json:"verificationToken"`
+}
+
 func hiddenCommand(name string, args ...string) *exec.Cmd {
 	cmd := exec.Command(name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow: true,
 	}
 	return cmd
+}
+
+func wslBashFast(command string) (string, error) {
+	cmd := hiddenCommand("wsl", "bash", "-lc", command)
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
 }
 
 type Manager struct {
@@ -108,6 +126,199 @@ func (m *Manager) GetPluginDetail(id string) (string, error) {
 		return "", err
 	}
 	return strings.ReplaceAll(string(out), "\r", ""), nil
+}
+
+func (m *Manager) GetFeishuConfig() (FeishuConfig, error) {
+	config := FeishuConfig{
+		Enabled:        true,
+		AccountID:      "main",
+		Domain:         "feishu",
+		ConnectionMode: "websocket",
+		DMPolicy:       "pairing",
+	}
+
+	output, err := wslBashFast("cat /root/.openclaw/openclaw.json 2>/dev/null || echo '{}'")
+	if err != nil {
+		return config, err
+	}
+
+	var root map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &root); err != nil {
+		return config, err
+	}
+
+	channels, _ := root["channels"].(map[string]interface{})
+	feishu, _ := channels["feishu"].(map[string]interface{})
+	if feishu == nil {
+		return config, nil
+	}
+
+	if enabled, ok := feishu["enabled"].(bool); ok {
+		config.Enabled = enabled
+	}
+	if domain, ok := feishu["domain"].(string); ok && strings.TrimSpace(domain) != "" {
+		config.Domain = domain
+	}
+	if connectionMode, ok := feishu["connectionMode"].(string); ok && strings.TrimSpace(connectionMode) != "" {
+		config.ConnectionMode = connectionMode
+	}
+	if dmPolicy, ok := feishu["dmPolicy"].(string); ok && strings.TrimSpace(dmPolicy) != "" {
+		config.DMPolicy = dmPolicy
+	}
+	if verificationToken, ok := feishu["verificationToken"].(string); ok {
+		config.VerificationToken = verificationToken
+	}
+	if defaultAccount, ok := feishu["defaultAccount"].(string); ok && strings.TrimSpace(defaultAccount) != "" {
+		config.AccountID = defaultAccount
+	}
+
+	accounts, _ := feishu["accounts"].(map[string]interface{})
+	if accounts == nil {
+		return config, nil
+	}
+
+	account, _ := accounts[config.AccountID].(map[string]interface{})
+	if account == nil {
+		for accountID, raw := range accounts {
+			candidate, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			config.AccountID = accountID
+			account = candidate
+			break
+		}
+	}
+	if account == nil {
+		return config, nil
+	}
+
+	if appID, ok := account["appId"].(string); ok {
+		config.AppID = appID
+	}
+	if appSecret, ok := account["appSecret"].(string); ok {
+		config.AppSecret = appSecret
+	}
+	if botName, ok := account["botName"].(string); ok {
+		config.BotName = botName
+	}
+	if accountDomain, ok := account["domain"].(string); ok && strings.TrimSpace(accountDomain) != "" {
+		config.Domain = accountDomain
+	}
+
+	return config, nil
+}
+
+func (m *Manager) SaveFeishuConfig(feishuConfig FeishuConfig) error {
+	output, err := wslBashFast("cat /root/.openclaw/openclaw.json 2>/dev/null || echo '{}'")
+	if err != nil {
+		return err
+	}
+
+	var root map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &root); err != nil {
+		return err
+	}
+
+	channels, _ := root["channels"].(map[string]interface{})
+	if channels == nil {
+		channels = map[string]interface{}{}
+		root["channels"] = channels
+	}
+
+	feishu, _ := channels["feishu"].(map[string]interface{})
+	if feishu == nil {
+		feishu = map[string]interface{}{}
+		channels["feishu"] = feishu
+	}
+
+	accountID := strings.TrimSpace(feishuConfig.AccountID)
+	if accountID == "" {
+		accountID = "main"
+	}
+
+	domain := strings.TrimSpace(feishuConfig.Domain)
+	if domain == "" {
+		domain = "feishu"
+	}
+
+	connectionMode := strings.TrimSpace(feishuConfig.ConnectionMode)
+	if connectionMode == "" {
+		connectionMode = "websocket"
+	}
+
+	dmPolicy := strings.TrimSpace(feishuConfig.DMPolicy)
+	if dmPolicy == "" {
+		dmPolicy = "pairing"
+	}
+
+	feishu["enabled"] = feishuConfig.Enabled
+	feishu["defaultAccount"] = accountID
+	feishu["domain"] = domain
+	feishu["connectionMode"] = connectionMode
+	feishu["dmPolicy"] = dmPolicy
+
+	if connectionMode == "webhook" && strings.TrimSpace(feishuConfig.VerificationToken) != "" {
+		feishu["verificationToken"] = strings.TrimSpace(feishuConfig.VerificationToken)
+	} else {
+		delete(feishu, "verificationToken")
+	}
+
+	accounts, _ := feishu["accounts"].(map[string]interface{})
+	if accounts == nil {
+		accounts = map[string]interface{}{}
+		feishu["accounts"] = accounts
+	}
+
+	account, _ := accounts[accountID].(map[string]interface{})
+	if account == nil {
+		account = map[string]interface{}{}
+		accounts[accountID] = account
+	}
+
+	account["appId"] = strings.TrimSpace(feishuConfig.AppID)
+	account["appSecret"] = strings.TrimSpace(feishuConfig.AppSecret)
+
+	if strings.TrimSpace(feishuConfig.BotName) != "" {
+		account["botName"] = strings.TrimSpace(feishuConfig.BotName)
+	} else {
+		delete(account, "botName")
+	}
+
+	if domain == "lark" {
+		account["domain"] = "lark"
+	} else {
+		delete(account, "domain")
+	}
+
+	updatedConfig, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	cmd := fmt.Sprintf("mkdir -p /root/.openclaw && cat > /root/.openclaw/openclaw.json << 'EOF'\n%s\nEOF", string(updatedConfig))
+	_, err = wslBashFast(cmd)
+	return err
+}
+
+// ToggleFeishuPlugin 启用或禁用飞书插件
+func (m *Manager) ToggleFeishuPlugin(enabled bool) error {
+	plugins, err := m.GetPlugins()
+	if err != nil {
+		return err
+	}
+	for _, plugin := range plugins {
+		joined := fmt.Sprintf("%s %s", plugin.ID, plugin.Name)
+		joined = strings.ToLower(joined)
+		if strings.Contains(joined, "feishu") || strings.Contains(joined, "lark") {
+			if enabled && !plugin.Enabled {
+				return m.EnablePlugin(plugin.ID)
+			} else if !enabled && plugin.Enabled {
+				return m.DisablePlugin(plugin.ID)
+			}
+		}
+	}
+	return nil
 }
 
 // 顺手把操作也封装好

@@ -12,16 +12,57 @@
   </div>
 
   <!-- 插件列表 -->
-  <div class="card">
+  <div class="card plugin-manager-card">
     <h2>已安装插件</h2>
+
+    <div style="display:grid; grid-template-columns: minmax(0, 1.8fr) minmax(180px, 0.9fr); gap: 0.9rem; margin-bottom: 1.2rem;">
+      <div class="form-group" style="margin-bottom: 0;">
+        <label>搜索插件</label>
+        <input
+          type="text"
+          v-model="pluginSearch"
+          placeholder="输入插件名称、ID 或版本">
+      </div>
+      <div class="form-group" style="margin-bottom: 0;">
+        <label>筛选范围</label>
+        <div class="catalog-select">
+          <button
+            type="button"
+            class="catalog-select-trigger"
+            :class="{ open: filterDropdownOpen }"
+            @click="toggleFilterDropdown"
+          >
+            <span class="catalog-select-text">{{ pluginFilterLabel }}</span>
+            <span class="catalog-select-arrow">▾</span>
+          </button>
+          <div v-if="filterDropdownOpen" class="catalog-select-panel">
+            <div class="catalog-select-list">
+              <button
+                v-for="option in pluginFilterOptions"
+                :key="option.value"
+                type="button"
+                class="catalog-option"
+                :class="{ active: pluginFilter === option.value }"
+                @click="selectPluginFilter(option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     
     <div class="plugin-grid">
       <div v-if="plugins.length === 0" class="empty-state">
         <p>暂无插件，请点击"添加插件"或"添加自定义插件"按钮添加</p>
       </div>
+      <div v-else-if="filteredPlugins.length === 0" class="empty-state">
+        <p>没有匹配的插件，请调整搜索关键词</p>
+      </div>
       
       <div 
-        v-for="plugin in plugins" 
+        v-for="plugin in filteredPlugins" 
         :key="plugin.id" 
         class="plugin-card"
         :class="plugin.enabled ? 'plugin-card--enabled' : 'plugin-card--disabled'"
@@ -32,6 +73,7 @@
         <!-- 图标 -->
         <div class="plugin-avatar" :class="plugin.enabled ? 'avatar--on' : 'avatar--off'">
           <span v-if="plugin.id === 'openclaw-weixin' || plugin.id === 'weixin'">WX</span>
+          <span v-else-if="isFeishuPlugin(plugin)">FS</span>
           <span v-else-if="plugin.id === 'acpx'">AX</span>
           <span v-else>{{ (plugin.name || plugin.id || '?').slice(0,2).toUpperCase() }}</span>
         </div>
@@ -47,7 +89,7 @@
           </div>
         </div>
 
-        <!-- 状态徽章 -->
+        <!-- 状态角标 -->
         <div class="plugin-status-badge" :class="plugin.enabled ? 'status--on' : 'status--off'">
           <span class="plugin-status-dot"></span>
           {{ plugin.enabled ? 'RUNNING' : 'STOPPED' }}
@@ -67,13 +109,18 @@
             @click="startWeixinAuth"
             :disabled="isWeixinAuthing"
           >{{ isWeixinAuthing ? '授权中...' : '微信授权' }}</button>
+          <button
+            v-if="isFeishuPlugin(plugin)"
+            class="btn btn-sm btn-primary"
+            @click="openFeishuConfigModal(plugin)"
+          >配置飞书</button>
           <button class="btn btn-sm btn-danger" @click="uninstallPlugin(plugin.id || plugin.name)">卸载</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- 局部美化弹窗：已通过 CSS 偏移修复侧边栏遮挡与定位漂移问题 -->
+  <!-- 局部美化弹窗：已通过 CSS 偏移修复边栏遮挡与定位漂移问题 -->
     <!-- 本地美化确认对话框 -->
     <div v-if="confirmState.show" class="modal-overlay confirm-modal-overlay">
       <div class="confirm-modal">
@@ -134,12 +181,41 @@
           <form @submit.prevent="installPlugin">
             <div class="form-group">
               <label>选择插件</label>
-              <select v-model="selectedPlugin" :class="{ 'input-error': pluginSelectError }">
-                <option value="">请选择插件</option>
-                <option value="weixin">微信插件</option>
-              </select>
+              <div class="catalog-select">
+                <button
+                  type="button"
+                  class="catalog-select-trigger"
+                  :class="{ open: pluginDropdownOpen, 'input-error': pluginSelectError }"
+                  @click="togglePluginDropdown"
+                >
+                  <span class="catalog-select-text">{{ selectedPluginLabel }}</span>
+                  <span class="catalog-select-arrow">▾</span>
+                </button>
+                <div v-if="pluginDropdownOpen" class="catalog-select-panel">
+                  <div class="catalog-select-list">
+                    <button
+                      type="button"
+                      class="catalog-option"
+                      :class="{ active: selectedPlugin === '' }"
+                      @click="selectPluginOption('')"
+                    >
+                      请选择插件
+                    </button>
+                    <button
+                      v-for="plugin in installablePlugins"
+                      :key="plugin.value"
+                      type="button"
+                      class="catalog-option"
+                      :class="{ active: selectedPlugin === plugin.value }"
+                      @click="selectPluginOption(plugin.value)"
+                    >
+                      {{ plugin.label }}
+                    </button>
+                  </div>
+                </div>
+              </div>
               <div v-if="pluginSelectError" class="field-error-msg">
-                <span class="field-error-icon">▸</span> 请先选择一个插件
+                <span class="field-error-icon">▲</span> 请先选择一个插件
               </div>
             </div>
             <div class="modal-footer">
@@ -153,7 +229,7 @@
 
     <!-- 添加自定义插件模态框 -->
     <div v-if="showAddCustomModal" class="modal-overlay" @click="closeAddCustomModal">
-      <div class="modal" @click.stop>
+      <div class="modal modal-wide modal-settings" @click.stop>
         <div class="modal-header">
           <h2>添加自定义插件</h2>
           <button class="btn-close" @click="closeAddCustomModal">&times;</button>
@@ -169,7 +245,7 @@
                 placeholder="例如: npm install -g @openclaw/custom-plugin"
               >
               <div v-if="customCommandError" class="field-error-msg">
-                <span class="field-error-icon">▸</span> 请输入要执行的命令
+                <span class="field-error-icon">▲</span> 请输入要执行的命令
               </div>
             </div>
             <div class="modal-footer">
@@ -180,29 +256,282 @@
         </div>
       </div>
     </div>
+
+<div v-if="showFeishuConfigModal" class="modal-overlay" @click="closeFeishuConfigModal">
+  <div class="modal modal-wide modal-settings" @click.stop>
+
+    <!-- Header -->
+    <div class="feishu-modal-header">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div class="plugin-avatar" :class="currentFeishuPlugin?.enabled ? 'avatar--on' : 'avatar--off'" style="width:42px;height:42px;font-size:12px;">FS</div>
+        <div>
+          <h2 style="margin:0;font-family:var(--font-display);font-size:13px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#fff;">飞书配置</h2>
+          <div class="subtitle" style="margin:0;">// FEISHU CHANNEL CONFIGURATION</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="plugin-status-badge" :class="currentFeishuPlugin?.enabled ? 'status--on' : 'status--off'">
+          <span class="plugin-status-dot"></span>{{ currentFeishuPlugin?.enabled ? 'RUNNING' : 'STOPPED' }}
+        </div>
+        <button class="btn-close" @click="closeFeishuConfigModal">&times;</button>
+      </div>
+    </div>
+
+    <!-- Body -->
+    <div class="modal-body">
+      <div v-if="feishuConfigLoading" class="auth-loading" style="min-height:220px;">
+        <div class="spinner"></div>
+        <p>正在加载飞书配置...</p>
+      </div>
+
+      <form v-if="!feishuConfigLoading" @submit.prevent="saveFeishuConfig" class="plugin-settings-form settings-form">
+
+        <!-- SECTION 1 : APP CREDENTIALS -->
+        <div class="settings-section feishu-section-cred">
+          <div class="feishu-section-hdr">
+            <div class="feishu-bar feishu-bar--cyan"></div>
+            <span class="settings-section-title feishu-title--cyan" style="margin:0;">APP CREDENTIALS</span>
+            <div class="feishu-rule feishu-rule--cyan"></div>
+          </div>
+          <div class="settings-grid">
+            <div class="form-group" style="margin-bottom:0;">
+              <label>账号 ID</label>
+              <div class="feishu-input-wrap">
+                <span class="feishu-input-prefix">ID</span>
+                <input type="text" v-model="feishuForm.accountId" placeholder="例如: main">
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>App ID <span class="feishu-required">*</span></label>
+              <div class="feishu-input-wrap" :class="{ 'feishu-input-wrap--error': feishuErrors.appId }">
+                <span class="feishu-input-prefix">cli</span>
+                <input type="text" v-model="feishuForm.appId" placeholder="_xxxxxxxxx">
+              </div>
+              <div v-if="feishuErrors.appId" class="field-error-msg"><span class="field-error-icon">▲</span> 请输入 App ID</div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;grid-column:1/-1;">
+              <label>App Secret <span class="feishu-required">*</span></label>
+              <div class="feishu-input-wrap" :class="{ 'feishu-input-wrap--error': feishuErrors.appSecret }">
+                <span class="feishu-input-prefix">KEY</span>
+                <input type="text" v-model="feishuForm.appSecret" placeholder="请输入飞书 App Secret">
+              </div>
+              <div v-if="feishuErrors.appSecret" class="field-error-msg"><span class="field-error-icon">▲</span> 请输入 App Secret</div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;grid-column:1/-1;">
+              <label>Bot 名称 <span class="feishu-optional">optional</span></label>
+              <div class="feishu-input-wrap">
+                <span class="feishu-input-prefix">BOT</span>
+                <input type="text" v-model="feishuForm.botName" placeholder="例如: ClawManager 助手">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 2 : CONNECTION CONFIG -->
+        <div class="settings-section feishu-section-conn">
+          <div class="feishu-section-hdr">
+            <div class="feishu-bar feishu-bar--green"></div>
+            <span class="settings-section-title feishu-title--green" style="margin:0;">CONNECTION CONFIG</span>
+            <div class="feishu-rule feishu-rule--green"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label>域名</label>
+              <div class="catalog-select">
+                <button type="button" class="catalog-select-trigger" :class="{ open: feishuDomainDropdownOpen }" @click="toggleFeishuDomainDropdown">
+                  <span class="catalog-select-text">{{ feishuDomainLabel }}</span>
+                  <span class="catalog-select-arrow">▾</span>
+                </button>
+                <div v-if="feishuDomainDropdownOpen" class="catalog-select-panel">
+                  <div class="catalog-select-list">
+                    <button v-for="option in feishuDomainOptions" :key="option.value" type="button" class="catalog-option" :class="{ active: feishuForm.domain === option.value }" @click="selectFeishuDomain(option.value)">{{ option.label }}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>连接模式</label>
+              <div class="catalog-select">
+                <button type="button" class="catalog-select-trigger" :class="{ open: feishuConnectionDropdownOpen }" @click="toggleFeishuConnectionDropdown">
+                  <span class="catalog-select-text">{{ feishuConnectionModeLabel }}</span>
+                  <span class="catalog-select-arrow">▾</span>
+                </button>
+                <div v-if="feishuConnectionDropdownOpen" class="catalog-select-panel">
+                  <div class="catalog-select-list">
+                    <button v-for="option in feishuConnectionOptions" :key="option.value" type="button" class="catalog-option" :class="{ active: feishuForm.connectionMode === option.value }" @click="selectFeishuConnectionMode(option.value)">{{ option.label }}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>私聊策略</label>
+              <div class="catalog-select">
+                <button type="button" class="catalog-select-trigger" :class="{ open: feishuDmPolicyDropdownOpen }" @click="toggleFeishuDmPolicyDropdown">
+                  <span class="catalog-select-text">{{ feishuDmPolicyLabel }}</span>
+                  <span class="catalog-select-arrow">▾</span>
+                </button>
+                <div v-if="feishuDmPolicyDropdownOpen" class="catalog-select-panel">
+                  <div class="catalog-select-list">
+                    <button v-for="option in feishuDmPolicyOptions" :key="option.value" type="button" class="catalog-option" :class="{ active: feishuForm.dmPolicy === option.value }" @click="selectFeishuDmPolicy(option.value)">{{ option.label }}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="form-group" v-if="feishuForm.connectionMode === 'webhook'" style="margin-top:12px;margin-bottom:0;">
+            <label>Verification Token <span class="feishu-required">*</span></label>
+            <div class="feishu-input-wrap" :class="{ 'feishu-input-wrap--error': feishuErrors.verificationToken }">
+              <span class="feishu-input-prefix">VTK</span>
+              <input type="text" v-model="feishuForm.verificationToken" placeholder="Webhook 模式需要填写 Verification Token">
+            </div>
+            <div v-if="feishuErrors.verificationToken" class="field-error-msg"><span class="field-error-icon">▲</span> webhook 模式需要 Verification Token</div>
+          </div>
+        </div>
+
+        <!-- Toggle + Note -->
+        <div class="feishu-info-row">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="toggle-switch">
+              <label class="switch-label">
+                <input type="checkbox" v-model="feishuForm.enabled">
+                <span class="switch-text">启用飞书渠道</span>
+              </label>
+            </div>
+            <span class="subtitle" style="margin:0;">保存后将自动重启网关</span>
+          </div>
+          <div class="subtitle" style="margin:0;text-align:right;line-height:1.7;">
+            写入 <code class="feishu-code">channels.feishu</code>，国际版租户请将 domain 设为 <code class="feishu-code">lark</code>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="modal-footer" style="justify-content:space-between;">
+          <button type="button" class="btn btn-outline" @click="openFeishuDocs">打开官方文档 ↗</button>
+          <div style="display:flex;gap:8px;">
+            <button type="button" class="btn btn-secondary" @click="closeFeishuConfigModal">取消</button>
+            <button type="submit" class="btn btn-primary">保存并应用</button>
+          </div>
+        </div>
+
+      </form>
+    </div>
+  </div>
+</div>
 </div>
 
 <script page-setup>
-  // 使用 Vue 原始对象以增强在 new Function 动态加载环境下的稳定性
-  const { ref, reactive, onMounted } = Vue
+  // 使用 Vue 原生对象以加强在 new Function 动态加载环境下的稳定性
+  const { ref, reactive, computed, onMounted } = Vue
 
   function pageSetup(deps) {
     const plugins = ref([])
+    const pluginSearch = ref('')
+    const pluginFilter = ref('all')
+    const filterDropdownOpen = ref(false)
     const isLoading = ref(false)
     const showAddPluginModal = ref(false)
     const showAddCustomModal = ref(false)
+    const showFeishuConfigModal = ref(false)
+    const currentFeishuPlugin = ref(null)
     const showPluginsWaitingModal = ref(false)
     const waitingText = ref('正在处理...')
     const selectedPlugin = ref('')
+    const pluginDropdownOpen = ref(false)
+    const feishuDomainDropdownOpen = ref(false)
+    const feishuConnectionDropdownOpen = ref(false)
+    const feishuDmPolicyDropdownOpen = ref(false)
     const customCommand = ref('')
     const pluginSelectError = ref(false)
     const customCommandError = ref(false)
+    const feishuConfigLoading = ref(false)
+    const installablePlugins = ref([
+      {
+        value: 'weixin',
+        label: '微信插件',
+        packageName: '@tencent-weixin/openclaw-weixin@latest',
+        installMessage: '微信插件安装成功，请手动点击"微信授权"按钮完成登录。',
+        bundled: false
+      }
+    ])
+    const pluginFilterOptions = ref([
+      { value: 'all', label: '全部插件' },
+      { value: 'enabled', label: '仅已启用' },
+      { value: 'disabled', label: '仅已禁用' },
+      { value: 'channels', label: '仅渠道插件' },
+      { value: 'providers', label: '仅 Provider 插件' }
+    ])
+    const feishuDomainOptions = ref([
+      { value: 'feishu', label: 'feishu' },
+      { value: 'lark', label: 'lark' }
+    ])
+    const feishuConnectionOptions = ref([
+      { value: 'websocket', label: 'websocket' },
+      { value: 'webhook', label: 'webhook' }
+    ])
+    const feishuDmPolicyOptions = ref([
+      { value: 'pairing', label: 'pairing' },
+      { value: 'allowlist', label: 'allowlist' },
+      { value: 'open', label: 'open' },
+      { value: 'disabled', label: 'disabled' }
+    ])
+    const feishuForm = reactive({
+      enabled: true,
+      accountId: 'main',
+      appId: '',
+      appSecret: '',
+      botName: '',
+      domain: 'feishu',
+      connectionMode: 'websocket',
+      dmPolicy: 'pairing',
+      verificationToken: ''
+    })
+    const feishuErrors = reactive({
+      appId: false,
+      appSecret: false,
+      verificationToken: false
+    })
+    const originalFeishuEnabled = ref(true)
 
     // 本地确认对话框状态
     const confirmState = Vue.reactive({
       show: false,
       message: '',
       resolve: null
+    })
+
+    const selectedPluginLabel = computed(() => {
+      if (!selectedPlugin.value) return '请选择插件'
+      const matched = installablePlugins.value.find(item => item.value === selectedPlugin.value)
+      return matched ? matched.label : selectedPlugin.value
+    })
+    const pluginFilterLabel = computed(() => {
+      const matched = pluginFilterOptions.value.find(item => item.value === pluginFilter.value)
+      return matched ? matched.label : '全部插件'
+    })
+    const feishuDomainLabel = computed(() => {
+      const matched = feishuDomainOptions.value.find(item => item.value === feishuForm.domain)
+      return matched ? matched.label : feishuForm.domain
+    })
+    const feishuConnectionModeLabel = computed(() => {
+      const matched = feishuConnectionOptions.value.find(item => item.value === feishuForm.connectionMode)
+      return matched ? matched.label : feishuForm.connectionMode
+    })
+    const feishuDmPolicyLabel = computed(() => {
+      const matched = feishuDmPolicyOptions.value.find(item => item.value === feishuForm.dmPolicy)
+      return matched ? matched.label : feishuForm.dmPolicy
+    })
+    const filteredPlugins = computed(() => {
+      const keyword = pluginSearch.value.trim().toLowerCase()
+      return plugins.value.filter(plugin => {
+        if (!matchesPluginFilter(plugin)) {
+          return false
+        }
+        if (!keyword) {
+          return true
+        }
+        const haystack = `${plugin.name || ''} ${plugin.id || ''} ${plugin.version || ''}`.toLowerCase()
+        return haystack.includes(keyword)
+      })
     })
 
     function showConfirm(message) {
@@ -243,6 +572,13 @@
         return
       }
       pluginSelectError.value = false
+      pluginDropdownOpen.value = false
+
+      const selectedPluginMeta = installablePlugins.value.find(item => item.value === selectedPlugin.value)
+      if (!selectedPluginMeta) {
+        deps.toast('未找到插件安装信息', 'error')
+        return
+      }
 
       showAddPluginModal.value = false
       showPluginsWaitingModal.value = true
@@ -250,15 +586,19 @@
 
       try {
         if (window.go && window.go.main && window.go.main.App) {
-          // 微信插件使用标准 InstallPlugin 方法
-          if (selectedPlugin.value === 'weixin') {
-            await window.go.main.App.InstallPlugin('@tencent-weixin/openclaw-weixin@latest')
-            deps.toast('微信插件安装成功，请手动点击"微信授权"按钮完成登录', 'success')
+          if (!selectedPluginMeta.bundled) {
+            await window.go.main.App.InstallPlugin(selectedPluginMeta.packageName)
+            deps.toast(selectedPluginMeta.installMessage || '插件安装成功', 'success')
           } else {
-            // 其他插件使用标准格式
-            await window.go.main.App.InstallPlugin(selectedPlugin.value)
-            deps.toast('插件安装成功', 'success')
+            deps.toast(selectedPluginMeta.installMessage || '插件已就绪', 'success')
           }
+
+          if (selectedPlugin.value === 'weixin') {
+            await loadPlugins()
+            startWeixinAuth()
+            return
+          }
+
           await loadPlugins()
         }
       } catch (e) {
@@ -310,12 +650,18 @@
         if (window.go && window.go.main && window.go.main.App) {
           if (plugin.enabled) {
             await window.go.main.App.DisablePlugin(pluginId)
-            deps.toast('插件已禁用', 'success')
           } else {
             await window.go.main.App.EnablePlugin(pluginId)
-            deps.toast('插件已启用', 'success')
           }
-          await loadPlugins()
+          
+          // 重启 gateway
+          waitingText.value = '正在重启网关...'
+          await window.go.main.App.RestartGateway()
+          
+          // 前端自己更新插件状态
+          plugin.enabled = !plugin.enabled
+          
+          deps.toast(plugin.enabled ? '插件已启用并重启网关' : '插件已禁用并重启网关', 'success')
         }
       } catch (e) {
         console.error('Failed to toggle plugin:', e)
@@ -350,7 +696,199 @@
     function closeAddPluginModal() {
       showAddPluginModal.value = false
       selectedPlugin.value = ''
+      pluginDropdownOpen.value = false
       pluginSelectError.value = false
+    }
+
+    function togglePluginDropdown() {
+      pluginDropdownOpen.value = !pluginDropdownOpen.value
+    }
+
+    function selectPluginOption(value) {
+      selectedPlugin.value = value
+      pluginSelectError.value = false
+      pluginDropdownOpen.value = false
+    }
+
+    function toggleFilterDropdown() {
+      filterDropdownOpen.value = !filterDropdownOpen.value
+    }
+
+    function selectPluginFilter(value) {
+      pluginFilter.value = value
+      filterDropdownOpen.value = false
+    }
+
+    function isFeishuPlugin(plugin) {
+      const joined = `${plugin?.id || ''} ${plugin?.name || ''}`.toLowerCase()
+      return joined.includes('feishu') || joined.includes('lark')
+    }
+
+    function matchesPluginFilter(plugin) {
+      switch (pluginFilter.value) {
+        case 'enabled':
+          return !!plugin.enabled
+        case 'disabled':
+          return !plugin.enabled
+        case 'channels':
+          return Array.isArray(plugin.channelIds) && plugin.channelIds.length > 0
+        case 'providers':
+          return (Array.isArray(plugin.providerIds) && plugin.providerIds.length > 0) ||
+            (Array.isArray(plugin.speechProviderIds) && plugin.speechProviderIds.length > 0) ||
+            (Array.isArray(plugin.mediaUnderstandingProviderIds) && plugin.mediaUnderstandingProviderIds.length > 0) ||
+            (Array.isArray(plugin.imageGenerationProviderIds) && plugin.imageGenerationProviderIds.length > 0) ||
+            (Array.isArray(plugin.webSearchProviderIds) && plugin.webSearchProviderIds.length > 0)
+        default:
+          return true
+      }
+    }
+
+    function clearFeishuErrors() {
+      feishuErrors.appId = false
+      feishuErrors.appSecret = false
+      feishuErrors.verificationToken = false
+    }
+
+    async function openFeishuConfigModal(plugin) {
+      clearFeishuErrors()
+      currentFeishuPlugin.value = plugin
+      showFeishuConfigModal.value = true
+      feishuConfigLoading.value = true
+      try {
+        if (window.go && window.go.main && window.go.main.App) {
+          const res = await window.go.main.App.GetFeishuConfig()
+          if (res && res.ok !== false) {
+            feishuForm.enabled = plugin ? plugin.enabled : (typeof res.enabled === 'boolean' ? res.enabled : true)
+            feishuForm.accountId = res.accountId || 'main'
+            feishuForm.appId = res.appId || ''
+            feishuForm.appSecret = res.appSecret || ''
+            feishuForm.botName = res.botName || ''
+            feishuForm.domain = res.domain || 'feishu'
+            feishuForm.connectionMode = res.connectionMode || 'websocket'
+            feishuForm.dmPolicy = res.dmPolicy || 'pairing'
+            feishuForm.verificationToken = res.verificationToken || ''
+            // 保存原始 enabled 状态
+            originalFeishuEnabled.value = feishuForm.enabled
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load feishu config:', e)
+        deps.toast('加载飞书配置失败', 'error')
+      }
+      feishuDomainDropdownOpen.value = false
+      feishuConnectionDropdownOpen.value = false
+      feishuDmPolicyDropdownOpen.value = false
+      feishuConfigLoading.value = false
+    }
+
+    function toggleFeishuDomainDropdown() {
+      feishuDomainDropdownOpen.value = !feishuDomainDropdownOpen.value
+    }
+
+    function selectFeishuDomain(value) {
+      feishuForm.domain = value
+      feishuDomainDropdownOpen.value = false
+    }
+
+    function toggleFeishuConnectionDropdown() {
+      feishuConnectionDropdownOpen.value = !feishuConnectionDropdownOpen.value
+    }
+
+    function selectFeishuConnectionMode(value) {
+      feishuForm.connectionMode = value
+      feishuConnectionDropdownOpen.value = false
+    }
+
+    function toggleFeishuDmPolicyDropdown() {
+      feishuDmPolicyDropdownOpen.value = !feishuDmPolicyDropdownOpen.value
+    }
+
+    function selectFeishuDmPolicy(value) {
+      feishuForm.dmPolicy = value
+      feishuDmPolicyDropdownOpen.value = false
+    }
+
+    function openFeishuDocs() {
+      if (window.go && window.go.main && window.go.main.App) {
+        window.go.main.App.OpenURL('https://docs.openclaw.ai/zh-CN/channels/feishu')
+      }
+    }
+
+    async function saveFeishuConfig() {
+      clearFeishuErrors()
+
+      let hasError = false
+      if (!feishuForm.appId.trim()) {
+        feishuErrors.appId = true
+        hasError = true
+      }
+      if (!feishuForm.appSecret.trim()) {
+        feishuErrors.appSecret = true
+        hasError = true
+      }
+      if (feishuForm.connectionMode === 'webhook' && !feishuForm.verificationToken.trim()) {
+        feishuErrors.verificationToken = true
+        hasError = true
+      }
+      if (hasError) return
+
+      showPluginsWaitingModal.value = true
+      waitingText.value = '正在保存飞书配置...'
+
+      try {
+        const result = await window.go.main.App.SaveFeishuConfig({
+          enabled: feishuForm.enabled,
+          accountId: feishuForm.accountId,
+          appId: feishuForm.appId,
+          appSecret: feishuForm.appSecret,
+          botName: feishuForm.botName,
+          domain: feishuForm.domain,
+          connectionMode: feishuForm.connectionMode,
+          dmPolicy: feishuForm.dmPolicy,
+          verificationToken: feishuForm.verificationToken
+        })
+
+        if (result && result.ok === false) {
+          throw new Error(result.error || '保存飞书配置失败')
+        }
+
+        // 只有当 enabled 状态改变时才执行第二步
+        if (feishuForm.enabled !== originalFeishuEnabled.value) {
+          waitingText.value = feishuForm.enabled ? '正在启用飞书插件...' : '正在禁用飞书插件...'
+          const toggleResult = await window.go.main.App.ToggleFeishuPlugin(feishuForm.enabled)
+          if (toggleResult && toggleResult.ok === false) {
+            throw new Error(toggleResult.error || '操作飞书插件失败')
+          }
+          
+          // 前端自己更新飞书插件的 enabled 状态
+          for (const plugin of plugins.value) {
+            if (isFeishuPlugin(plugin)) {
+              plugin.enabled = feishuForm.enabled
+            }
+          }
+        }
+        
+        // 最后重启 gateway
+        waitingText.value = '正在重启网关...'
+        await window.go.main.App.RestartGateway()
+        
+        deps.toast('飞书配置已保存并重启网关', 'success')
+        showFeishuConfigModal.value = false
+      } catch (e) {
+        console.error('Failed to save feishu config:', e)
+        deps.toast(e?.message || '保存飞书配置失败', 'error')
+      } finally {
+        showPluginsWaitingModal.value = false
+      }
+    }
+
+    function closeFeishuConfigModal() {
+      showFeishuConfigModal.value = false
+      feishuConfigLoading.value = false
+      feishuDomainDropdownOpen.value = false
+      feishuConnectionDropdownOpen.value = false
+      feishuDmPolicyDropdownOpen.value = false
+      clearFeishuErrors()
     }
 
     function closeAddCustomModal() {
@@ -402,26 +940,65 @@
 
     return {
       plugins,
+      filteredPlugins,
+      pluginSearch,
+      pluginFilter,
+      pluginFilterLabel,
+      pluginFilterOptions,
+      filterDropdownOpen,
       isLoading,
       showAddPluginModal,
       showAddCustomModal,
+      showFeishuConfigModal,
+      currentFeishuPlugin,
       showPluginsWaitingModal,
       selectedPlugin,
+      selectedPluginLabel,
+      pluginDropdownOpen,
+      installablePlugins,
+      feishuDomainOptions,
+      feishuDomainLabel,
+      feishuConnectionOptions,
+      feishuConnectionModeLabel,
+      feishuDmPolicyOptions,
+      feishuDmPolicyLabel,
+      feishuDomainDropdownOpen,
+      feishuConnectionDropdownOpen,
+      feishuDmPolicyDropdownOpen,
       confirmState,
       customCommand,
       waitingText,
       showWeixinAuthModal,
+      feishuConfigLoading,
       isWeixinAuthing,
       weixinAuthUrl,
       weixinAuthLogs,
       pluginSelectError,
       customCommandError,
+      feishuForm,
+      feishuErrors,
+      originalFeishuEnabled,
       installPlugin,
       installCustomPlugin,
       togglePlugin,
       uninstallPlugin,
       closeAddPluginModal,
       closeAddCustomModal,
+      togglePluginDropdown,
+      selectPluginOption,
+      toggleFilterDropdown,
+      selectPluginFilter,
+      isFeishuPlugin,
+      openFeishuConfigModal,
+      openFeishuDocs,
+      saveFeishuConfig,
+      closeFeishuConfigModal,
+      toggleFeishuDomainDropdown,
+      selectFeishuDomain,
+      toggleFeishuConnectionDropdown,
+      selectFeishuConnectionMode,
+      toggleFeishuDmPolicyDropdown,
+      selectFeishuDmPolicy,
       startWeixinAuth,
       closeWeixinAuthModal
     }
