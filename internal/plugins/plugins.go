@@ -423,25 +423,61 @@ func (m *Manager) InstallCustomPlugin(command string) error {
 
 // WeixinAuth 微信授权
 func (m *Manager) WeixinAuth() {
-	cmd := hiddenCommand("wsl", "bash", "-lc", "openclaw channels login --channel openclaw-weixin")
+	// 使用go协程执行，避免阻塞主线程
+	go func() {
+		cmd := hiddenCommand("wsl", "bash", "-lc", "openclaw channels login --channel openclaw-weixin")
 
-	// 合并 stdout + stderr 一起读（CLI 可能把内容输出到 stderr）
-	cmd.Stderr = cmd.Stdout
-	stdout, _ := cmd.StdoutPipe()
-
-	cmd.Start()
-
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		runtime.EventsEmit(m.ctx, "weixinauth:log", line)
-
-		// 提取 URL（根据实际输出格式调整）
-		if strings.HasPrefix(line, "https://") {
-			runtime.EventsEmit(m.ctx, "weixinauth:url", strings.TrimSpace(line))
+		// 合并 stdout + stderr 一起读（CLI 可能把内容输出到 stderr）
+		cmd.Stderr = cmd.Stdout
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			runtime.EventsEmit(m.ctx, "weixinauth:log", "无法获取命令输出: "+err.Error())
+			runtime.EventsEmit(m.ctx, "weixinauth:done", "")
+			return
 		}
-	}
 
-	cmd.Wait()
-	runtime.EventsEmit(m.ctx, "weixinauth:done", "")
+		// 启动命令
+		if err := cmd.Start(); err != nil {
+			runtime.EventsEmit(m.ctx, "weixinauth:log", "命令启动失败: "+err.Error())
+			runtime.EventsEmit(m.ctx, "weixinauth:done", "")
+			return
+		}
+
+		// 设置命令超时（5分钟）
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		// 监听命令输出
+		scanner := bufio.NewScanner(stdout)
+		urlFound := false
+
+		// 读取输出行
+		for scanner.Scan() {
+			line := scanner.Text()
+			runtime.EventsEmit(m.ctx, "weixinauth:log", line)
+
+			// 提取 URL（根据实际输出格式调整）
+			if strings.HasPrefix(line, "https://") {
+				url := strings.TrimSpace(line)
+				runtime.EventsEmit(m.ctx, "weixinauth:url", url)
+				urlFound = true
+			}
+		}
+
+		// 等待命令完成或超时
+		select {
+		case <-ctx.Done():
+			// 超时，终止命令
+			cmd.Process.Kill()
+			runtime.EventsEmit(m.ctx, "weixinauth:log", "微信授权超时")
+		default:
+			// 等待命令自然完成
+			cmd.Wait()
+		}
+
+		// 确保只有在找到URL后才发送done事件，否则保持模态框打开
+		if urlFound {
+			runtime.EventsEmit(m.ctx, "weixinauth:done", "")
+		}
+	}()
 }

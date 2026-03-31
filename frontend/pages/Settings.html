@@ -44,8 +44,9 @@
 <div class="waiting-overlay" v-if="loadingWsl">
   <div class="waiting-modal">
     <div class="spinner"></div>
-    <h3>正在{{ wslAction === 'start' ? '启动' : '关闭' }} WSL</h3>
+    <h3>{{ wslAction === 'start' ? '正在启动 WSL' : wslAction === 'stop' ? '正在关闭 WSL' : '正在安装 WSL' }}</h3>
     <p v-if="wslAction === 'stop'">正在关闭 WSL 服务，请稍候...</p>
+    <p v-else-if="wslAction === 'install'">正在安装 WSL 基础环境...</p>
     <p v-else-if="wslPhase === 'wsl'">正在启动 WSL 服务...</p>
     <p v-else-if="wslPhase === 'openclaw'">WSL 已启动，正在重启 OpenClaw Gateway...</p>
     <p v-else>正在处理...</p>
@@ -283,6 +284,8 @@
     async function installWsl() {
       if (!window.go) return
       loadingWsl.value = true
+      wslAction.value = 'install'
+      wslPhase.value = 'install'
       try {
         const res = await window.go.main.App.InstallWSL()
         if (res.ok) {

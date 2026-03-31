@@ -904,7 +904,7 @@
       weixinAuthUrl.value = ''
       weixinAuthLogs.value = []
 
-      // 调用后端微信授权
+      // 调用后端微信授权，不设置超时，让系统自然处理
       if (window.go && window.go.main && window.go.main.App) {
         window.go.main.App.WeixinAuth()
       }
@@ -927,6 +927,7 @@
         })
         window.runtime.EventsOn('weixinauth:log', (log) => {
           weixinAuthLogs.value.push(log)
+          console.log('微信授权日志:', log)
         })
         window.runtime.EventsOn('weixinauth:done', () => {
           isWeixinAuthing.value = false
