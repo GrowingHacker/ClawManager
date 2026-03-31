@@ -240,14 +240,21 @@ func (m *Manager) RunWSL() map[string]interface{} {
 	result := map[string]interface{}{"ok": true, "message": "WSL 2 已在后台启动"}
 
 	if m.openclawMgr != nil {
-		combinedCmd := `command -v openclaw >/dev/null 2>&1 && /usr/local/bin/openclaw gateway restart 2>&1 || true`
-		checkCmd := exec.Command("wsl", "-e", "bash", "-c", combinedCmd)
-		checkCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		out, err := checkCmd.CombinedOutput()
+		// 先检查 openclaw 是否安装
+		checkInstallCmd := exec.Command("wsl", "-e", "bash", "-c", "command -v openclaw >/dev/null 2>&1")
+		checkInstallCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		installErr := checkInstallCmd.Run()
 
-		if err == nil && strings.Contains(string(out), "Restarted systemd service") {
-			result["openclawRestarted"] = true
-			result["message"] = "WSL 2 已启动，OpenClaw Gateway 已重启"
+		// 只有当 openclaw 已安装时，才尝试重启 gateway
+		if installErr == nil {
+			restartCmd := exec.Command("wsl", "-e", "bash", "-c", "/usr/local/bin/openclaw gateway restart 2>&1")
+			restartCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			out, err := restartCmd.CombinedOutput()
+
+			if err == nil && strings.Contains(string(out), "Restarted systemd service") {
+				result["openclawRestarted"] = true
+				result["message"] = "WSL 2 已启动，OpenClaw Gateway 已重启"
+			}
 		}
 	}
 
@@ -270,15 +277,22 @@ func (m *Manager) RunWSLAsync() {
 		result := map[string]interface{}{"ok": true, "message": "WSL 2 已在后台启动"}
 
 		if m.openclawMgr != nil {
-			runtime.EventsEmit(m.ctx, "wsl:phase", "openclaw")
-			combinedCmd := `command -v openclaw >/dev/null 2>&1 && /usr/local/bin/openclaw gateway restart 2>&1 || true`
-			checkCmd := exec.Command("wsl", "-e", "bash", "-c", combinedCmd)
-			checkCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-			out, err := checkCmd.CombinedOutput()
+			// 先检查 openclaw 是否安装
+			checkInstallCmd := exec.Command("wsl", "-e", "bash", "-c", "command -v openclaw >/dev/null 2>&1")
+			checkInstallCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			installErr := checkInstallCmd.Run()
 
-			if err == nil && strings.Contains(string(out), "Restarted systemd service") {
-				result["openclawRestarted"] = true
-				result["message"] = "WSL 2 已启动，OpenClaw Gateway 已重启"
+			// 只有当 openclaw 已安装时，才尝试重启 gateway
+			if installErr == nil {
+				runtime.EventsEmit(m.ctx, "wsl:phase", "openclaw")
+				restartCmd := exec.Command("wsl", "-e", "bash", "-c", "/usr/local/bin/openclaw gateway restart 2>&1")
+				restartCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+				out, err := restartCmd.CombinedOutput()
+
+				if err == nil && strings.Contains(string(out), "Restarted systemd service") {
+					result["openclawRestarted"] = true
+					result["message"] = "WSL 2 已启动，OpenClaw Gateway 已重启"
+				}
 			}
 		}
 
