@@ -5,7 +5,7 @@
 **OpenClaw 一站式管理工具 · Windows 版**
 
 [![Platform](https://img.shields.io/badge/platform-Windows-blue?style=flat-square&logo=windows)](https://github.com)
-[![Version](https://img.shields.io/badge/version-v26.3.31-cyan?style=flat-square)](https://github.com)
+[![Version](https://img.shields.io/badge/version-v26.04.02-cyan?style=flat-square)](https://github.com)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![WSL](https://img.shields.io/badge/requires-WSL2-orange?style=flat-square&logo=linux)](https://learn.microsoft.com/en-us/windows/wsl/)
 
