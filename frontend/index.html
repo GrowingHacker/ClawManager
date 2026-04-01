@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <title>ClawManager</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <script src="/vue.global.js"></script>
+  <script src="/src/scripts/vue.global.js"></script>
+  <script src="/src/scripts/i18n.js"></script>
   <link rel="stylesheet" href="/src/css/app.css" />
 </head>
 <body>
@@ -24,37 +25,37 @@
       <div class="blob" ref="blobRef"></div>
 
       <div class="nav-section">
-        <div class="nav-section-label">核心服务</div>
+        <div class="nav-section-label">{{ t('nav.core') }}</div>
 
         <div class="nav-item" :class="{active: page===0, disabled: !canAccessCorePages}" @click="goPage(0)">
           <span class="nav-icon">⚡</span>
-          <span class="nav-label">OpenClaw 管理</span>
-          <span v-if="!canAccessCorePages" class="lock-icon" title="请先启动 WSL">🔒</span>
+          <span class="nav-label">{{ t('nav.openclaw') }}</span>
+          <span v-if="!canAccessCorePages" class="lock-icon" :title="t('msg.wsl_lock')">🔒</span>
         </div>
 
         <div class="nav-item" :class="{active: page===1, disabled: !canAccessCorePages}" @click="goPage(1)">
           <span class="nav-icon">🖥️</span>
-          <span class="nav-label">Dashboard 管理</span>
-          <span v-if="!canAccessCorePages" class="lock-icon" title="请先启动 WSL">🔒</span>
+          <span class="nav-label">{{ t('nav.dashboard') }}</span>
+          <span v-if="!canAccessCorePages" class="lock-icon" :title="t('msg.wsl_lock')">🔒</span>
         </div>
 
         <div class="nav-item" :class="{active: page===3, disabled: !canAccessCorePages}" @click="goPage(3)">
           <span class="nav-icon">🤖</span>
-          <span class="nav-label">模型管理</span>
-          <span v-if="!canAccessCorePages" class="lock-icon" title="请先启动 WSL">🔒</span>
+          <span class="nav-label">{{ t('nav.model') }}</span>
+          <span v-if="!canAccessCorePages" class="lock-icon" :title="t('msg.wsl_lock')">🔒</span>
         </div>
 
         <div class="nav-item" :class="{active: page===4, disabled: !canAccessCorePages}" @click="goPage(4)">
           <span class="nav-icon">🔌</span>
-          <span class="nav-label">插件管理</span>
-          <span v-if="!canAccessCorePages" class="lock-icon" title="请先启动 WSL">🔒</span>
+          <span class="nav-label">{{ t('nav.plugin') }}</span>
+          <span v-if="!canAccessCorePages" class="lock-icon" :title="t('msg.wsl_lock')">🔒</span>
         </div>
       </div>
 
       <div class="nav-bottom">
         <div class="nav-item" :class="{active: page===2}" @click="goPage(2)">
           <span class="nav-icon">⚙️</span>
-          <span class="nav-label">设置 / 安装向导</span>
+          <span class="nav-label">{{ t('nav.settings') }}</span>
         </div>
         <div class="sidebar-status-line">
           <div class="sidebar-status-dot"></div>
@@ -74,7 +75,7 @@
       </template>
       <div v-else class="loading-state">
         <div class="spinner"></div>
-        <p>正在检查系统环境...</p>
+        <p>{{ t('app.loading') }}</p>
       </div>
     </div>
   </div>
@@ -134,6 +135,11 @@ async function initApp() {
       const sidebarRef = ref(null)
       const blobRef    = ref(null)
       const toasts     = ref([])
+      const currentLang = ref(localStorage.getItem('lang') || 'zh-CN')
+
+      function t(key) {
+        return window.i18nMessages[currentLang.value]?.[key] || key
+      }
 
       const sysState = reactive({
         wsl: { installed: false, distroInstalled: false, running: false, version: '', error: '' },
@@ -174,12 +180,12 @@ async function initApp() {
         // 其他页面只需要 WSL 运行
         else {
           if (!ready.value) {
-            toast('Environment check is still running', 'warning')
+            toast(t('app.checking'), 'warning')
             return
           }
           // 检查 WSL 是否运行
           if (!sysState.wsl.running) {
-            toast('请先在设置中启动 WSL', 'warning')
+            toast(t('app.wsl_not_started'), 'warning')
             return
           }
         }
@@ -286,7 +292,7 @@ async function initApp() {
           boot = { ok: false, state: null, error: e }
         }
         if (boot && boot.timedOut) {
-          toast('系统环境检查超时（可能是 WSL 无响应），请先在设置中排查', 'warning')
+          toast(t('app.timeout'), 'warning')
         }
         if (boot && boot.ok && boot.state) {
           sysState.wsl = {
@@ -298,7 +304,7 @@ async function initApp() {
           resolveInitialPage()
         }
         if (boot && boot.ok === false && boot.error) {
-          toast('无法连接到后端服务', 'error')
+          toast(t('app.conn_error'), 'error')
         }
         ready.value = true
         nextTick(() => moveBlob())
@@ -307,9 +313,9 @@ async function initApp() {
       // 监听窗口大小变化以修复悬浮块位置
       window.addEventListener('resize', () => moveBlob())
 
-      const deps = { toast, nextTick, sysState, registerDashboardRefresh, registerDashboardStart, registerDashboardWslStopped, triggerDashboardRefresh, triggerDashboardStart, triggerDashboardWslStopped, triggerOpenClawWslStopped, triggerWslStarted, triggerWslStopped }
+      const deps = { toast, nextTick, sysState, registerDashboardRefresh, registerDashboardStart, registerDashboardWslStopped, triggerDashboardRefresh, triggerDashboardStart, triggerDashboardWslStopped, triggerOpenClawWslStopped, triggerWslStarted, triggerWslStopped, currentLang, t }
       const ctx = {
-        sysState, goPage,
+        sysState, goPage, currentLang, t,
         ...pages[0].pageSetup(deps),
         ...pages[1].pageSetup(deps),
         ...pages[2].pageSetup(deps),
@@ -319,7 +325,7 @@ async function initApp() {
 
       provide('ctx', ctx)
 
-      return { ready, page, exitPage, sidebarRef, blobRef, toasts, sysState, canAccessCorePages, goPage }
+      return { ready, page, exitPage, sidebarRef, blobRef, toasts, sysState, canAccessCorePages, goPage, currentLang, t }
     }
   })
 

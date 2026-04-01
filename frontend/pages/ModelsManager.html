@@ -1,17 +1,17 @@
 <div>
   <div class="header-with-action">
     <div>
-      <h1>模型管理</h1>
-      <p class="subtitle">// 配置推理模型供应端</p>
+      <h1>{{ t('model.title') }}</h1>
+      <p class="subtitle">{{ t('model.subtitle') }}</p>
     </div>
     <div class="header-controls">
       <div class="toggle-switch">
         <label class="switch-label">
           <input type="checkbox" v-model="autoRestartEnabled">
-          <span class="switch-text">保存后自动重启网关</span>
+          <span class="switch-text">{{ t('model.restart_gw') }}</span>
         </label>
       </div>
-      <button class="btn btn-primary" @click="openAddModelModal">添加模型</button>
+      <button class="btn btn-primary" @click="openAddModelModal">{{ t('model.add') }}</button>
     </div>
   </div>
 
@@ -19,14 +19,14 @@
     <div class="confirm-modal">
       <div class="confirm-modal-header">
         <span class="confirm-icon">!</span>
-        <h3>系统提示</h3>
+        <h3>{{ t('model.sys_prompt') }}</h3>
       </div>
       <div class="confirm-modal-body">
         <p>{{ confirmState.message }}</p>
       </div>
       <div class="confirm-modal-footer">
-        <button class="btn btn-outline btn-sm" @click="confirmState.resolve(false)">取消</button>
-        <button class="btn btn-primary btn-sm" @click="confirmState.resolve(true)">确定</button>
+        <button class="btn btn-outline btn-sm" @click="confirmState.resolve(false)">{{ t('model.cancel') }}</button>
+        <button class="btn btn-primary btn-sm" @click="confirmState.resolve(true)">{{ t('model.confirm') }}</button>
       </div>
     </div>
   </div>
@@ -34,8 +34,8 @@
   <div v-if="showModelsWaitingModal" class="modal-overlay global-loading-overlay" style="z-index: 10000;">
     <div class="global-loading-modal">
       <div class="spinner"></div>
-      <h3>正在重启网关...</h3>
-      <p>请稍候，网关正在重启以应用新的模型配置</p>
+      <h3>{{ t('model.restarting_gw') }}</h3>
+      <p>{{ t('model.restarting_gw_desc') }}</p>
     </div>
   </div>
 
@@ -50,13 +50,13 @@
   <div v-if="showAddModelModal" class="modal-overlay" @click="closeModals" style="z-index: 9999;">
     <div class="modal modal-wide modal-settings" @click.stop>
       <div class="modal-header">
-        <h2>{{ isEditingModel ? '编辑模型' : '添加模型' }}</h2>
+        <h2>{{ isEditingModel ? t('model.edit') : t('model.add') }}</h2>
         <button class="btn-close" @click="closeModals">&times;</button>
       </div>
       <div class="modal-body">
         <form @submit.prevent="saveModel" class="settings-form model-settings-form">
           <div class="form-group">
-            <label>提供商</label>
+            <label>{{ t('model.provider') }}</label>
             <div class="catalog-select">
               <button
                 type="button"
@@ -88,20 +88,20 @@
               <option value="anthropic">Anthropic</option>
               <option value="google">Google</option>
               <option value="deepseek">DeepSeek</option>
-              <option value="other">其他</option>
+              <option value="other">{{ t('model.other') }}</option>
             </select>
-            <div v-if="formErrors.provider" class="field-error-msg"><span class="field-error-icon">▲</span> 请选择提供商</div>
+            <div v-if="formErrors.provider" class="field-error-msg"><span class="field-error-icon">▲</span> {{ t('model.err_provider') }}</div>
           </div>
 
           <div class="form-group">
-            <label>服务地址</label>
+            <label>{{ t('model.url') }}</label>
             <input
               type="text"
               v-model="currentModel.baseUrl"
               :class="{ 'input-error': formErrors.baseUrl }"
               :placeholder="baseUrlPlaceholder"
             >
-            <div v-if="formErrors.baseUrl" class="field-error-msg"><span class="field-error-icon">▲</span> 请输入服务地址</div>
+            <div v-if="formErrors.baseUrl" class="field-error-msg"><span class="field-error-icon">▲</span> {{ t('model.err_baseurl') }}</div>
           </div>
 
           <div class="form-group">
@@ -112,11 +112,11 @@
               :class="{ 'input-error': formErrors.apiKey }"
               :placeholder="apiKeyPlaceholder"
             >
-            <div v-if="formErrors.apiKey" class="field-error-msg"><span class="field-error-icon">▲</span> 请输入 API Key</div>
+            <div v-if="formErrors.apiKey" class="field-error-msg"><span class="field-error-icon">▲</span> {{ t('model.err_apikey') }}</div>
           </div>
 
           <div class="form-group" v-if="providerSupportsCatalog">
-            <label>官方模型目录</label>
+            <label>{{ t('model.cat_label') }}</label>
             <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
               <button
                 type="button"
@@ -124,7 +124,7 @@
                 @click="loadProviderCatalog"
                 :disabled="loadingCatalog"
               >
-                {{ loadingCatalog ? '拉取中...' : '从官方获取模型列表' }}
+                {{ loadingCatalog ? t('model.pulling') : t('model.fetch_cat') }}
               </button>
               <button
                 v-if="providerDocsUrl"
@@ -132,7 +132,7 @@
                 class="btn btn-secondary btn-sm"
                 @click="openProviderDocs"
               >
-                打开官方文档
+                {{ t('model.open_docs') }}
               </button>
               <button
                 v-if="providerModelsCatalogUrl"
@@ -140,7 +140,7 @@
                 class="btn btn-secondary btn-sm"
                 @click="openProviderModelsCatalog"
               >
-                浏览 NVIDIA 模型
+                {{ t('model.browse_nvidia') }}
               </button>
             </div>
             <div v-if="catalogError" class="field-error-msg"><span class="field-error-icon">▲</span> {{ catalogError }}</div>
@@ -159,7 +159,7 @@
                   type="text"
                   v-model="catalogSearch"
                   class="catalog-search-input"
-                  placeholder="搜索模型名称或 ID"
+                  :placeholder="t('model.search_placeholder')"
                 >
                 <div class="catalog-select-list">
                   <button
@@ -168,7 +168,7 @@
                     :class="{ active: selectedCatalogModelId === '' }"
                     @click="selectCatalogModel(null)"
                   >
-                    请选择官方模型
+                    {{ t('model.err_select_cat') }}
                   </button>
                   <button
                     v-for="model in filteredAvailableModels"
@@ -181,49 +181,49 @@
                     {{ model.name }} / {{ model.id }}
                   </button>
                   <div v-if="filteredAvailableModels.length === 0" class="catalog-option-empty">
-                    没有匹配的模型
+                    {{ t('model.no_match') }}
                   </div>
                 </div>
               </div>
             </div>
             <div v-else-if="catalogLoaded && !loadingCatalog" class="subtitle" style="margin-top:8px;">
-              当前接口没有返回可用模型，可以继续手动填写。
+             <span class="text-muted">{{ t('model.no_models') }}, {{ t('model.manual') }}.</span>
             </div>
             <div class="subtitle" style="margin-top:8px;">
-              已按最新官方文档接入：NVIDIA 官方 LLM API 目录、OpenAI `GET /v1/models`、Anthropic `GET /v1/models`、Google `models.list`、DeepSeek `GET /models`。
+              {{ t('model.cat_desc') }}
             </div>
           </div>
 
           <div class="form-group" v-else>
-            <label>录入方式</label>
-            <div class="subtitle">当前提供商保持手动录入，NVIDIA 与其他自定义兼容现有方式。</div>
+            <label>{{ t('model.entry_mode') }}</label>
+            <div class="subtitle">{{ t('model.manual_desc') }}</div>
           </div>
 
           <div class="form-group">
-            <label>模型型号</label>
+            <label>{{ t('model.model_id') }}</label>
             <input
               type="text"
               v-model="currentModel.id"
               :class="{ 'input-error': formErrors.id }"
               :placeholder="modelIdPlaceholder"
             >
-            <div v-if="formErrors.id" class="field-error-msg"><span class="field-error-icon">▲</span> 请输入模型型号</div>
+            <div v-if="formErrors.id" class="field-error-msg"><span class="field-error-icon">▲</span> {{ t('model.err_id') }}</div>
           </div>
 
           <div class="form-group">
-            <label>模型名称</label>
+            <label>{{ t('model.model_name') }}</label>
             <input
               type="text"
               v-model="currentModel.name"
               :class="{ 'input-error': formErrors.name }"
               :placeholder="modelNamePlaceholder"
             >
-            <div v-if="formErrors.name" class="field-error-msg"><span class="field-error-icon">▲</span> 请输入模型名称</div>
+            <div v-if="formErrors.name" class="field-error-msg"><span class="field-error-icon">▲</span> {{ t('model.err_name') }}</div>
           </div>
 
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeModals">取消</button>
-            <button type="submit" class="btn btn-primary">保存</button>
+            <button type="button" class="btn btn-secondary" @click="closeModals">{{ t('model.cancel') }}</button>
+            <button type="submit" class="btn btn-primary">{{ t('model.save') }}</button>
           </div>
         </form>
       </div>
@@ -231,11 +231,11 @@
   </div>
 
   <div class="card">
-    <h2>已添加模型</h2>
+    <h2>{{ t('model.added') }}</h2>
 
     <div class="model-grid">
       <div v-if="allModels.length === 0" class="empty-state">
-        <p>暂无模型，请点击"添加模型"按钮开始配置。</p>
+        <p>{{ t('model.empty_hint') }}</p>
       </div>
 
       <div v-for="(model, index) in allModels" :key="index" class="model-card">
@@ -258,14 +258,14 @@
             </div>
             <div class="model-meta-row">
               <span class="model-meta-label">API KEY</span>
-              <span class="model-meta-value api-key-dots">{{ model.apiKey ? '●●●●  ●●●●  ●●●●' : '— 未设置 —' }}</span>
+              <span class="model-meta-value api-key-dots">{{ model.apiKey ? '●●●●  ●●●●  ●●●●' : '— ' + t('model.unset') + ' —' }}</span>
             </div>
           </div>
         </div>
 
         <div class="model-card-actions">
-          <button class="btn btn-sm btn-outline" @click="editModel(model)">修改</button>
-          <button class="btn btn-sm btn-danger" @click="deleteModel(model.provider, model.id)">删除</button>
+          <button class="btn btn-sm btn-outline" @click="editModel(model)">{{ t('model.modify') }}</button>
+          <button class="btn btn-sm btn-danger" @click="deleteModel(model.provider, model.id)">{{ t('model.delete') }}</button>
         </div>
       </div>
     </div>
@@ -276,54 +276,55 @@
   const { ref, reactive, computed, onMounted, watch } = Vue
 
   function pageSetup(deps) {
+    const { t } = deps;
     const PROVIDER_META = {
       nvidia: {
         baseUrl: 'https://integrate.api.nvidia.com/v1',
         api: 'openai-completions',
-        apiKeyPlaceholder: '例如: nvapi-...',
-        modelIdPlaceholder: '例如: qwen/qwen3.5-397b-a17b',
-        modelNamePlaceholder: '例如: Qwen3.5 397B A17B (NVIDIA)',
+        apiKeyPlaceholder: t('model.eg') + ' nvapi-...',
+        modelIdPlaceholder: t('model.eg') + ' qwen/qwen3.5-397b-a17b',
+        modelNamePlaceholder: t('model.eg') + ' Qwen3.5 397B A17B (NVIDIA)',
         docsUrl: 'https://docs.api.nvidia.com/nim/reference/llm-apis',
         modelsCatalogUrl: 'https://build.nvidia.com/models'
       },
       openai: {
         baseUrl: 'https://api.openai.com/v1',
         api: 'openai-completions',
-        apiKeyPlaceholder: '例如: sk-proj-...',
-        modelIdPlaceholder: '例如: gpt-5.2',
-        modelNamePlaceholder: '例如: GPT-5.2',
+        apiKeyPlaceholder: t('model.eg') + ' sk-proj-...',
+        modelIdPlaceholder: t('model.eg') + ' gpt-5.2',
+        modelNamePlaceholder: t('model.eg') + ' GPT-5.2',
         docsUrl: 'https://platform.openai.com/docs/api-reference/models/list'
       },
       anthropic: {
         baseUrl: 'https://api.anthropic.com',
         api: 'anthropic-messages',
-        apiKeyPlaceholder: '例如: sk-ant-...',
-        modelIdPlaceholder: '例如: claude-sonnet-4-20250514',
-        modelNamePlaceholder: '例如: Claude Sonnet 4',
+        apiKeyPlaceholder: t('model.eg') + ' sk-ant-...',
+        modelIdPlaceholder: t('model.eg') + ' claude-sonnet-4-20250514',
+        modelNamePlaceholder: t('model.eg') + ' Claude Sonnet 4',
         docsUrl: 'https://docs.anthropic.com/en/api/models-list'
       },
       google: {
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
         api: 'google-generative-ai',
-        apiKeyPlaceholder: '例如: AIza...',
-        modelIdPlaceholder: '例如: gemini-2.5-pro',
-        modelNamePlaceholder: '例如: Gemini 2.5 Pro',
+        apiKeyPlaceholder: t('model.eg') + ' AIza...',
+        modelIdPlaceholder: t('model.eg') + ' gemini-2.5-pro',
+        modelNamePlaceholder: t('model.eg') + ' Gemini 2.5 Pro',
         docsUrl: 'https://ai.google.dev/api/rest/generativelanguage/models/list'
       },
       deepseek: {
         baseUrl: 'https://api.deepseek.com',
         api: 'openai-completions',
-        apiKeyPlaceholder: '例如: sk-...',
-        modelIdPlaceholder: '例如: deepseek-chat',
-        modelNamePlaceholder: '例如: DeepSeek Chat',
+        apiKeyPlaceholder: t('model.eg') + ' sk-...',
+        modelIdPlaceholder: t('model.eg') + ' deepseek-chat',
+        modelNamePlaceholder: t('model.eg') + ' DeepSeek Chat',
         docsUrl: 'https://api-docs.deepseek.com/api/list-models'
       },
       other: {
         baseUrl: '',
         api: 'openai-completions',
-        apiKeyPlaceholder: '例如: your-api-key',
-        modelIdPlaceholder: '例如: custom-model-id',
-        modelNamePlaceholder: '例如: Custom Model',
+        apiKeyPlaceholder: t('model.eg') + ' your-api-key',
+        modelIdPlaceholder: t('model.eg') + ' custom-model-id',
+        modelNamePlaceholder: t('model.eg') + ' Custom Model',
         docsUrl: ''
       }
     }
@@ -385,12 +386,12 @@
     ]))
     const selectedProviderLabel = computed(() => {
       const selected = providerOptions.value.find(option => option.value === currentModel.value.provider)
-      return selected ? selected.label : 'Select Provider'
+      return selected ? selected.label : t('model.select_provider')
     })
     const providerSupportsCatalog = computed(() => CATALOG_PROVIDERS.includes(currentModel.value.provider))
     const providerDocsUrl = computed(() => providerMeta.value.docsUrl || '')
     const providerModelsCatalogUrl = computed(() => providerMeta.value.modelsCatalogUrl || '')
-    const baseUrlPlaceholder = computed(() => providerMeta.value.baseUrl || '例如: https://your-api.example/v1')
+    const baseUrlPlaceholder = computed(() => providerMeta.value.baseUrl || t('model.eg') + ' https://your-api.example/v1')
     const apiKeyPlaceholder = computed(() => providerMeta.value.apiKeyPlaceholder)
     const modelIdPlaceholder = computed(() => providerMeta.value.modelIdPlaceholder)
     const modelNamePlaceholder = computed(() => providerMeta.value.modelNamePlaceholder)
@@ -403,9 +404,9 @@
       })
     })
     const selectedCatalogModelLabel = computed(() => {
-      if (!selectedCatalogModelId.value) return '请选择官方模型'
+      if (!selectedCatalogModelId.value) return t('model.err_select_cat')
       const selected = findCatalogModelById(selectedCatalogModelId.value)
-      if (!selected) return '请选择官方模型'
+      if (!selected) return t('model.err_select_cat')
       return `${selected.name} / ${selected.id}`
     })
 
@@ -548,7 +549,7 @@
         }
       } catch (e) {
         console.error('Failed to load models config:', e)
-        deps.toast('加载模型配置失败', 'error')
+        deps.toast(t('model.toast_load_fail'), 'error')
       } finally {
         loadingModelsList.value = false
       }
@@ -571,7 +572,7 @@
               deps.toast('Gateway restarted successfully', 'success')
             } catch (e) {
               console.error('Failed to restart gateway:', e)
-              deps.toast('网关重启失败', 'warning')
+              deps.toast(t('model.toast_gw_fail'), 'warning')
             } finally {
               showModelsWaitingModal.value = false
             }
@@ -579,7 +580,7 @@
         }
       } catch (e) {
         console.error('Failed to save models config:', e)
-        deps.toast('保存模型配置失败', 'error')
+        deps.toast(t('model.toast_save_fail'), 'error')
       }
     }
 
@@ -623,7 +624,7 @@
 
       if (currentModel.value.provider !== 'nvidia' && !currentModel.value.apiKey.trim()) {
         formErrors.apiKey = true
-        deps.toast('请先填写 API Key', 'warning')
+        deps.toast(t('model.toast_fill_apikey'), 'warning')
         return
       }
 
@@ -637,7 +638,7 @@
         )
 
         if (!res || res.ok === false) {
-          throw new Error(res && res.error ? res.error : '拉取模型目录失败')
+          throw new Error(res && res.error ? res.error : t('model.toast_cat_fail'))
         }
 
         currentModel.value.baseUrl = res.baseUrl || currentModel.value.baseUrl
@@ -661,7 +662,7 @@
         }
       } catch (e) {
         console.error('Failed to load provider catalog:', e)
-        const message = e && e.message ? e.message : '拉取模型目录失败'
+        const message = e && e.message ? e.message : t('model.toast_cat_fail')
         catalogError.value = message
         deps.toast(message, 'error')
       } finally {
@@ -751,7 +752,7 @@
     }
 
     async function deleteModel(providerName, modelId) {
-      if (!(await showConfirm('确定要删除这个模型吗？'))) {
+      if (!(await showConfirm(t('model.del_confirm')))) {
         return
       }
 
@@ -789,7 +790,7 @@
       loadModelsConfig()
     })
 
-    return {
+    return { t,
       modelsConfig,
       showAddModelModal,
       isEditingModel,

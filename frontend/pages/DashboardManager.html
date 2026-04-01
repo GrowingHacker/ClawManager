@@ -2,10 +2,10 @@
   <div class="header-with-action">
     <div>
       <div class="header-title-row">
-        <h1>Dashboard</h1>
+        <h1>{{ t('dash.title') }}</h1>
       </div>
       <div class="header-actions">
-        <p class="subtitle">// OpenClaw Web 控制台</p>
+        <p class="subtitle">{{ t('dash.subtitle') }}</p>
       </div>
     </div>
     <button class="btn-sync" @click="refreshDashboardStatus" :disabled="checking || starting">
@@ -18,9 +18,9 @@
         <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
         <path d="M3 21v-5h5"/>
       </svg>
-      <span v-if="starting">启动中...</span>
-      <span v-else-if="checking">刷新中...</span>
-      <span v-else>刷新</span>
+      <span v-if="starting">{{ t('dash.starting') }}</span>
+      <span v-else-if="checking">{{ t('dash.refreshing') }}</span>
+      <span v-else>{{ t('dash.refresh') }}</span>
     </button>
   </div>
 
@@ -28,35 +28,35 @@
     <!-- 状态行 -->
     <div class="status-indicator">
       <span class="status-dot" :class="starting ? 'dot-starting' : (status.running ? 'dot-running' : 'dot-stopped')"></span>
-      <span class="status-label">{{ starting ? '服务启动中' : (status.running ? '运行中' : '未运行') }}</span>
+      <span class="status-label">{{ starting ? t('dash.run_starting') : (status.running ? t('dash.run_running') : t('dash.run_stopped')) }}</span>
     </div>
 
     <!-- 链接行 -->
     <div class="status-url" :class="{ offline: !status.running && !starting }">
       <span class="url-text" :class="{ muted: !status.running && !starting }">{{ displayURL }}</span>
       <button v-if="status.running" class="btn-copy" @click="copyURL">
-        {{ copied ? '✓ 已复制' : '📋 复制' }}
+        {{ copied ? t('dash.copy_ok') : t('dash.copy') }}
       </button>
     </div>
 
     <!-- 操作按钮 -->
     <div v-if="status.running" class="status-actions">
-      <button class="btn-primary btn-large" @click="openInBrowser">🌐 在浏览器中打开</button>
+      <button class="btn-primary btn-large" @click="openInBrowser">{{ t('dash.open') }}</button>
     </div>
 
     <div v-if="starting" class="dashboard-hint-inline">
-      <p>Dashboard 服务正在启动，请稍候...</p>
+      <p>{{ t('dash.hint_starting') }}</p>
     </div>
     <div v-else-if="!status.running && hint === 'wsl-stopped'" class="dashboard-hint-inline">
-      <p>请前往 <strong>设置</strong> 页面启动 WSL</p>
+      <p><span v-html="t('dash.hint_wsl')"></span></p>
     </div>
     <div v-else-if="!status.running" class="dashboard-hint-inline">
-      <p>请前往 <strong>OpenClaw 管理</strong> 页面启动 Gateway</p>
+      <p><span v-html="t('dash.hint_gw')"></span></p>
     </div>
   </div>
 
   <div class="dashboard-hint">
-    <p>💡 Dashboard 是 OpenClaw Gateway 内置的 Web 管理界面，随 Gateway 一同启停。</p>
+    <p>{{ t('dash.hint_desc') }}</p>
   </div>
 </div>
 
@@ -64,6 +64,7 @@
   const { ref, computed, onMounted, onUnmounted } = Vue
 
   function pageSetup(deps) {
+    const { t } = deps;
     const status   = ref({ running: false, port: 18789, url: 'http://localhost:18789', fullUrl: 'http://localhost:18789' })
     const checking = ref(false)
     const copied   = ref(false)
@@ -115,7 +116,7 @@
           pollTimer = setTimeout(check, 500)
         } else {
           starting.value = false
-          deps.toast('Dashboard 服务启动超时，请手动刷新', 'warning')
+          deps.toast(t('dash.toast_timeout'), 'warning')
         }
       }
       
@@ -130,7 +131,7 @@
     async function openInBrowser() {
       if (!window.go) return
       try { await window.go.main.App.OpenURL(status.value.fullUrl) }
-      catch(e) { deps.toast('无法打开浏览器', 'error') }
+      catch(e) { deps.toast(t('dash.toast_browser'), 'error') }
     }
 
     function copyURL() {
@@ -151,6 +152,6 @@
       if (pollTimer) clearTimeout(pollTimer)
     })
 
-    return { status, checking, copied, starting, hint, displayURL, refreshDashboardStatus, openInBrowser, copyURL }
+    return { status, checking, copied, starting, hint, displayURL, refreshDashboardStatus, openInBrowser, copyURL , t}
   }
 </script>
