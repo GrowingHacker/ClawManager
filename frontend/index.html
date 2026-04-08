@@ -19,7 +19,7 @@
         </div>
         <div class="brand-text">
           <span class="brand-name">ClawManager</span>
-          <span class="brand-version">SYSTEM v26.04.02</span>
+          <span class="brand-version">SYSTEM v26.04.09</span>
         </div>
       </div>
       <div class="blob" ref="blobRef"></div>
@@ -247,8 +247,8 @@ async function initApp() {
         if (!window.go || !window.go.main || !window.go.main.App) return
         if (!sysState.wsl.installed || !sysState.wsl.distroInstalled || sysState.wsl.running) return
 
-        for (let attempt = 0; attempt < 4; attempt++) {
-          await new Promise(resolve => setTimeout(resolve, 800))
+        for (let attempt = 0; attempt < 2; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 500))
 
           try {
             const running = await window.go.main.App.CheckWSLRunning()
@@ -256,15 +256,10 @@ async function initApp() {
 
             sysState.wsl.running = true
 
-            const state = await window.go.main.App.GetInitialState()
-            if (state && state.wsl) {
-              sysState.wsl = {
-                ...state.wsl,
-                running: state.wslRunning
-              }
-            }
-            if (state && state.openclaw) {
-              sysState.openclaw = state.openclaw
+            // 仅调用轻量的 CheckOpenClaw()，避免再次走完整的 GetInitialState 检测链
+            const ocStatus = await window.go.main.App.CheckOpenClaw()
+            if (ocStatus) {
+              sysState.openclaw = ocStatus
             }
             return
           } catch (e) {

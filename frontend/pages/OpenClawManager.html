@@ -6,39 +6,170 @@
     </div>
   </div>
 
-  <!-- Gateway 状态卡片 -->
-  <div class="card status-card" :class="sysState.openclaw.gatewayRunning ? 'card-running' : 'card-stopped'">
-    <h2>{{ t('oc.run_status') }}</h2>
-    <div class="status-row">
-      <div class="status-label">
-        <div class="status-dot-wrap">
-          <span class="status-dot" :class="sysState.openclaw.gatewayRunning ? 'dot-running' : 'dot-stopped'"></span>
-        </div>
+  <!-- ═══ HERO STATUS CARD ═══ -->
+  <div class="oc-hero-card" :class="sysState.openclaw.gatewayRunning ? 'oc-hero--online' : 'oc-hero--offline'">
+    <div class="oc-hero-scanline"></div>
+
+    <div class="oc-hero-status">
+      <div class="oc-hero-indicator">
+        <span class="oc-hero-dot" :class="sysState.openclaw.gatewayRunning ? 'oc-hero-dot--run' : 'oc-hero-dot--stop'"></span>
         <div>
-          <div class="status-item-name">{{ t('oc.gw_service') }}</div>
-          <div class="status-item-desc">{{ t('oc.gw_desc') }}</div>
+          <div class="oc-hero-name">{{ t('oc.gw_service') }}</div>
+          <div class="oc-hero-desc">{{ t('oc.gw_desc') }}</div>
         </div>
       </div>
-      <div class="btn-group">
+      <div class="oc-hero-actions">
         <span class="badge" :class="sysState.openclaw.gatewayRunning ? 'success' : 'danger'">
           {{ sysState.openclaw.gatewayRunning ? t('oc.run') : t('oc.stopped') }}
         </span>
         <button v-if="sysState.openclaw.gatewayRunning" class="btn btn-danger" @click="stopGateway"
-          :disabled="loading">{{ t('oc.stop') }}</button>
-        <button v-else class="btn btn-success" @click="startGateway" :disabled="loading">{{ t('oc.start') }}</button>
+          :disabled="loading">■ {{ t('oc.stop') }}</button>
+        <button v-else class="btn btn-success" @click="startGateway" :disabled="loading">▶ {{ t('oc.start') }}</button>
+      </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="oc-stats-row">
+      <div class="oc-stat-tile">
+        <div class="oc-stat-label">{{ t('oc.port') }}</div>
+        <div class="oc-stat-value" :class="{ 'oc-stat-value--muted': !sysState.openclaw.gatewayRunning }">
+          {{ sysState.openclaw.gatewayRunning ? '18789' : '—' }}
+        </div>
+      </div>
+      <div class="oc-stat-tile">
+        <div class="oc-stat-label">{{ t('oc.uptime') }}</div>
+        <div class="oc-stat-value" :class="{ 'oc-stat-value--muted': !sysState.openclaw.gatewayRunning }">
+          {{ sysState.openclaw.gatewayRunning ? uptimeDisplay : '—' }}
+        </div>
+      </div>
+      <div class="oc-stat-tile">
+        <div class="oc-stat-label">{{ t('oc.ver') }}</div>
+        <div class="oc-stat-value" :class="{ 'oc-stat-value--muted': !sysState.openclaw.version }">
+          {{ sysState.openclaw.version || t('oc.unknown') }}
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- 系统信息卡片 -->
-  <div class="card status-card" :class="sysState.openclaw.installed ? 'card-ready' : 'card-stopped'">
-    <div class="card-header-row">
-      <h2>{{ t('oc.sys_info') }}</h2>
+  <!-- ═══ SYSTEM INFO PANEL ═══ -->
+  <div class="oc-info-panel">
+    <div class="oc-info-header-row">
+      <div class="oc-info-title">{{ t('oc.sys_info') }}</div>
       <a href="javascript:void(0)" @click="goPage(2)" class="text-accent">{{ t('oc.reinstall') }}</a>
     </div>
-    <div class="status-row">
-      <div class="text-muted">{{ t('oc.version') }}</div>
-      <div class="info-value">{{ sysState.openclaw.version || t('oc.unknown') }}</div>
+    <div class="oc-info-grid">
+      <div class="oc-info-item">
+        <div class="oc-info-key">{{ t('oc.version') }}</div>
+        <div class="oc-info-val" :class="{ 'oc-info-val--muted': !sysState.openclaw.version }">
+          {{ sysState.openclaw.version || t('oc.unknown') }}
+        </div>
+      </div>
+      <div class="oc-info-item">
+        <div class="oc-info-key">
+          <span class="oc-info-key-dot" :class="sysState.openclaw.installed ? 'oc-info-key-dot--on' : 'oc-info-key-dot--off'"></span>
+          {{ t('oc.install_status') }}
+        </div>
+        <div class="oc-info-val" :class="sysState.openclaw.installed ? '' : 'oc-info-val--muted'">
+          {{ sysState.openclaw.installed ? '✓ OK' : '✗ N/A' }}
+        </div>
+      </div>
+      <div class="oc-info-item">
+        <div class="oc-info-key">{{ t('oc.port') }}</div>
+        <div class="oc-info-val">18789</div>
+      </div>
+      <div class="oc-info-item">
+        <div class="oc-info-key">{{ t('oc.run_status') }}</div>
+        <div class="oc-info-val" :class="sysState.openclaw.gatewayRunning ? '' : 'oc-info-val--muted'">
+          {{ sysState.openclaw.gatewayRunning ? t('oc.run') : t('oc.stopped') }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ LOG VIEWER (Terminal Style) ═══ -->
+  <div class="oc-log-card" :class="{ 'oc-log-card--active': logStreaming }">
+    <!-- Terminal Title Bar -->
+    <div class="oc-terminal-bar">
+      <div class="oc-terminal-bar-left">
+        <div class="oc-terminal-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <span class="oc-terminal-title">{{ t('oc.terminal_title') }}</span>
+      </div>
+      <div class="oc-terminal-bar-right">
+        <span class="oc-terminal-count">{{ filteredLogs.length }} {{ t('oc.log_lines') }}</span>
+        <div v-if="logStreaming" class="oc-terminal-live">
+          <span class="oc-terminal-live-dot"></span>
+          LIVE
+        </div>
+      </div>
+    </div>
+
+    <div class="oc-terminal-body">
+      <!-- Log Controls -->
+      <div class="log-controls">
+        <div class="log-filters">
+          <button
+            v-for="level in logLevels"
+            :key="level.value"
+            class="log-filter-btn"
+            :class="{ active: logFilter === level.value }"
+            @click="logFilter = level.value"
+          >
+            <span class="log-filter-dot" :class="'dot-' + level.value" v-if="level.value !== 'all'"></span>
+            {{ level.label }}
+            <span class="oc-filter-count" v-if="level.value !== 'all'">{{ logCountByLevel(level.value) }}</span>
+          </button>
+        </div>
+        <div class="log-actions">
+          <button class="btn btn-icon" @click="clearLogs" :disabled="logs.length === 0" :title="t('oc.clear_logs')">
+            <span>🗑</span>
+          </button>
+          <button
+            v-if="!logStreaming"
+            class="btn btn-primary"
+            @click="startLogStream"
+            :disabled="!sysState.openclaw.gatewayRunning || logLoading"
+          >
+            <span v-if="logLoading" class="sync-icon spinning">⚡</span>
+            <span v-else>▶</span>
+            {{ t('oc.start_stream') }}
+          </button>
+          <button
+            v-else
+            class="btn btn-danger"
+            @click="stopLogStream"
+          >
+            ■ {{ t('oc.stop_stream') }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Log Container -->
+      <div class="oc-log-wrap">
+        <div class="log-container" ref="logContainer" @scroll="onLogScroll">
+          <div v-if="filteredLogs.length === 0" class="log-empty">
+            <span v-if="logStreaming">{{ t('oc.waiting_logs') }}</span>
+            <span v-else>{{ t('oc.no_logs') }}</span>
+          </div>
+          <div
+            v-for="(log, index) in filteredLogs"
+            :key="index"
+            class="oc-log-line"
+            :class="'log-' + log.level"
+          >
+            <span class="oc-line-num">{{ index + 1 }}</span>
+            <span class="oc-line-text" v-html="highlightLog(log.text)"></span>
+          </div>
+        </div>
+        <button
+          v-if="!autoScroll && filteredLogs.length > 0"
+          class="oc-scroll-bottom"
+          @click="jumpToBottom"
+        >
+          ↓ {{ t('oc.scroll_bottom') }}
+        </button>
+      </div>
     </div>
   </div>
 
@@ -53,11 +184,158 @@
 </div>
 
 <script page-setup>
-  const { ref, onMounted } = Vue
+  const { ref, computed, onMounted, onUnmounted, nextTick, watch } = Vue
 
   function pageSetup(deps) {
     const { t } = deps;
     const loading = ref(false)
+    const logs = ref([])
+    const logFilter = ref('all')
+    const logStreaming = ref(false)
+    const logLoading = ref(false)
+    const logContainer = ref(null)
+    const autoScroll = ref(true)
+    const uptimeSeconds = ref(0)
+    let uptimeTimer = null
+
+    const logLevels = [
+      { value: 'all', label: t('oc.filter_all') },
+      { value: 'error', label: 'ERROR' },
+      { value: 'warn', label: 'WARN' },
+      { value: 'info', label: 'INFO' },
+      { value: 'debug', label: 'DEBUG' }
+    ]
+
+    const filteredLogs = computed(() => {
+      if (logFilter.value === 'all') return logs.value
+      return logs.value.filter(log => log.level === logFilter.value)
+    })
+
+    function logCountByLevel(level) {
+      return logs.value.filter(l => l.level === level).length
+    }
+
+    const uptimeDisplay = computed(() => {
+      const s = uptimeSeconds.value
+      const h = Math.floor(s / 3600)
+      const m = Math.floor((s % 3600) / 60)
+      const sec = s % 60
+      if (h > 0) return `${h}h ${m}m ${sec}s`
+      if (m > 0) return `${m}m ${sec}s`
+      return `${sec}s`
+    })
+
+    function startUptimeTimer() {
+      stopUptimeTimer()
+      uptimeSeconds.value = 0
+      uptimeTimer = setInterval(() => {
+        uptimeSeconds.value++
+      }, 1000)
+    }
+
+    function stopUptimeTimer() {
+      if (uptimeTimer) {
+        clearInterval(uptimeTimer)
+        uptimeTimer = null
+      }
+      uptimeSeconds.value = 0
+    }
+
+    function onLogScroll() {
+      if (!logContainer.value) return
+      const el = logContainer.value
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+      autoScroll.value = atBottom
+    }
+
+    function jumpToBottom() {
+      if (logContainer.value) {
+        logContainer.value.scrollTop = logContainer.value.scrollHeight
+        autoScroll.value = true
+      }
+    }
+
+    function highlightLog(text) {
+      if (!text) return ''
+      let escaped = text.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      escaped = escaped.replace(/ERROR/gi, '<span class="hl-error">ERROR</span>')
+      escaped = escaped.replace(/WARN|WARNING/gi, '<span class="hl-warn">$&</span>')
+      escaped = escaped.replace(/DEBUG|TRACE/gi, '<span class="hl-debug">$&</span>')
+      escaped = escaped.replace(/INFO/gi, '<span class="hl-info">INFO</span>')
+      escaped = escaped.replace(/\b(failed|err|exception|panic)\b/gi, '<span class="hl-error">$1</span>')
+      return escaped
+    }
+
+    function startLogStream() {
+      if (!window.go || logStreaming.value) return
+      logLoading.value = true
+      logStreaming.value = true
+      autoScroll.value = true
+      window.go.main.App.StreamGatewayLogs()
+    }
+
+    function stopLogStream() {
+      if (!window.go) return
+      window.go.main.App.StopGatewayLogs()
+      logStreaming.value = false
+      logLoading.value = false
+    }
+
+    function clearLogs() {
+      logs.value = []
+    }
+
+    function scrollToBottom() {
+      if (!autoScroll.value) return
+      nextTick(() => {
+        if (logContainer.value) {
+          logContainer.value.scrollTop = logContainer.value.scrollHeight
+        }
+      })
+    }
+
+    function onLogReceived(data) {
+      if (data && data.text) {
+        logs.value.push({ level: data.level, text: data.text })
+        if (logs.value.length > 500) {
+          logs.value = logs.value.slice(-500)
+        }
+        scrollToBottom()
+      }
+      if (data && data.level === 'system') {
+        logStreaming.value = false
+        logLoading.value = false
+      }
+    }
+
+    onMounted(() => {
+      if (window.runtime) {
+        window.runtime.EventsOn('gateway:log', onLogReceived)
+      }
+      // Start uptime timer if gateway is already running
+      if (deps.sysState.openclaw.gatewayRunning) {
+        startUptimeTimer()
+      }
+    })
+
+    onUnmounted(() => {
+      if (window.runtime) {
+        window.runtime.EventsOff('gateway:log')
+      }
+      if (logStreaming.value) {
+        stopLogStream()
+      }
+      stopUptimeTimer()
+    })
+
+    // Watch gateway running state for uptime timer
+    watch(() => deps.sysState.openclaw.gatewayRunning, (running) => {
+      if (running) {
+        startUptimeTimer()
+      } else {
+        stopUptimeTimer()
+      }
+    })
 
     async function refreshStatus() {
       if (!window.go) return
@@ -114,6 +392,9 @@
       loading.value = false
     }
 
-    return { loading, refreshStatus, startGateway, stopGateway , t}
+    return { loading, logs, logFilter, logStreaming, logLoading, logLevels, filteredLogs, logContainer,
+             highlightLog, startLogStream, stopLogStream, clearLogs, logCountByLevel,
+             autoScroll, onLogScroll, jumpToBottom, uptimeDisplay,
+             refreshStatus, startGateway, stopGateway, t }
   }
 </script>

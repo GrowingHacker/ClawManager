@@ -16,6 +16,8 @@ export function DisablePlugin(arg1:string):Promise<void>;
 
 export function EnablePlugin(arg1:string):Promise<void>;
 
+export function GetAvailableVersions():Promise<Record<string, any>>;
+
 export function GetFeishuConfig():Promise<Record<string, any>>;
 
 export function GetGatewayStatus():Promise<Record<string, any>>;
@@ -38,6 +40,8 @@ export function InstallPlugin(arg1:string):Promise<void>;
 
 export function InstallUbuntu():Promise<void>;
 
+export function InstallVersion(arg1:string):Promise<Record<string, any>>;
+
 export function InstallWSL():Promise<Record<string, any>>;
 
 export function OpenURL(arg1:string):Promise<void>;
@@ -56,7 +60,11 @@ export function StartGateway():Promise<Record<string, any>>;
 
 export function StopGateway():Promise<Record<string, any>>;
 
+export function StopGatewayLogs():Promise<Record<string, any>>;
+
 export function StopWSL():Promise<Record<string, any>>;
+
+export function StreamGatewayLogs():Promise<void>;
 
 export function ToggleFeishuPlugin(arg1:boolean):Promise<Record<string, any>>;
 

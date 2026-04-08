@@ -163,6 +163,58 @@
       </div>
     </div>
 
+    <!-- 版本控制区域 (集成到卡片内部) -->
+    <div v-if="showOpenClawReady" style="margin-top: 1.25rem; border-top: 1px dashed var(--border-default); padding-top: 1.25rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+        <span style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); letter-spacing: 0.05em; text-transform: uppercase;">{{ t('oc.ver_manage') }}</span>
+        <a href="https://github.com/openclaw/openclaw" target="_blank" class="text-accent" style="font-size: 0.75rem; text-decoration: none; display: flex; align-items: center; gap: 4px;">{{ t('oc.changelog') }}</a>
+      </div>
+
+      <div v-if="verState.loading" style="padding: 12px 0;">
+        <div class="spinner" style="width: 24px; height: 24px; display: inline-block; vertical-align: middle;"></div> <span style="margin-left: 12px; color: var(--text-muted)">{{ t('oc.checking_ver') }}</span>
+      </div>
+      
+      <div v-else-if="verState.ok">
+        <div style="display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 16px;">
+          <div style="display: flex; gap: 40px;">
+            <div>
+              <div style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px; letter-spacing: 0.5px;">{{ t('oc.cur_ver') }}</div>
+              <div style="font-family: 'Consolas', 'Courier New', monospace; font-size: 1.1rem; color: #fff; font-weight: 500; letter-spacing: 0.5px;">{{ sysState.openclaw.version || t('oc.unknown') }}</div>
+            </div>
+            <div>
+              <div style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px; letter-spacing: 0.5px;">{{ t('oc.latest_ver') }}</div>
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="font-family: 'Consolas', 'Courier New', monospace; font-size: 1.1rem; color: var(--accent-color); font-weight: 500; letter-spacing: 0.5px; text-shadow: 0 0 8px rgba(0,255,255,0.3);">{{ verState.latest }}</div>
+                <span v-if="sysState.openclaw.version === verState.latest" class="badge success" style="padding: 4px 8px;">{{ t('oc.up_to_date') }}</span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <button v-if="sysState.openclaw.version !== verState.latest" class="btn btn-primary" @click="upgradeToLatest" :disabled="isUpdatingVersion || isInstallingClaw">
+              ⭐ {{ t('oc.upgrade') }}
+            </button>
+          </div>
+        </div>
+        
+        <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <div style="color: var(--text-muted); font-size: 0.85rem; letter-spacing: 0.5px;">{{ t('oc.sel_ver') }}</div>
+            <select style="background: rgba(15, 25, 35, 0.6); color: var(--accent-color); border: 1px solid var(--border-color); border-radius: 4px; padding: 6px 12px; font-size: 0.95rem; font-family: 'Consolas', 'Courier New', monospace; outline: none; min-width: 180px; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg fill=%22%230ff%22 height=%2224%22 viewBox=%220 0 24 24%22 width=%2224%22 xmlns=%22http://www.w3.org/2000/svg%22><path d=%22M7 10l5 5 5-5z%22/></svg>'); background-repeat: no-repeat; background-position: right 8px center; padding-right: 32px; cursor: pointer; transition: all 0.2s;" v-model="verState.selectedVersion" onmouseover="this.style.borderColor='var(--accent-color)';" onmouseout="this.style.borderColor='var(--border-color)';">
+              <option v-for="v in verState.versions" :key="v" :value="v" style="background: #0b1117; color: #fff;">{{ v }}</option>
+            </select>
+          </div>
+          <button class="btn btn-outline" @click="rollbackVersion" :disabled="isUpdatingVersion || isInstallingClaw || verState.selectedVersion === sysState.openclaw.version">
+            ⏪ {{ t('oc.rollback') }}
+          </button>
+        </div>
+      </div>
+      
+      <div v-else style="padding: 12px 0;">
+        <p style="color:var(--text-danger)">{{ verState.error }}</p>
+        <button class="btn btn-outline" @click="loadVersions">Retry</button>
+      </div>
+    </div>
+
     <!-- 安装进度条（安装中显示） -->
     <div v-if="isInstallingClaw" class="install-progress-bar">
       <div class="install-progress-fill"></div>
@@ -176,6 +228,8 @@
     </div>
   </div>
 </div>
+
+
 
 <script page-setup>
   const { ref, computed, watch, onMounted, onUnmounted } = Vue
@@ -194,14 +248,24 @@
     const wslInstallStatus = ref('')
     const wslDownloadProgress = ref(0)
     const clawLogs = ref([])
+    const isUpdatingVersion = ref(false)
     const openClawCheckToken = ref(0)
+
+    const verState = Vue.reactive({
+      loading: true,
+      ok: false,
+      error: '',
+      latest: '',
+      versions: [],
+      selectedVersion: ''
+    })
     const showOpenClawReady = computed(() => deps.sysState.wsl.running && deps.sysState.openclaw.installed)
     const openClawStatusText = computed(() => {
       if (!deps.sysState.wsl.running) {
         return t('setting.openclaw_wsl_wait')
       }
       if (showOpenClawReady.value) {
-        return t('setting.openclaw_installed') + deps.sysState.openclaw.version
+        return t('setting.openclaw_installed')
       }
       if (checkingClaw.value) {
         return t('setting.openclaw_checking')
@@ -235,11 +299,37 @@
         const status = await window.go.main.App.CheckOpenClaw()
         if (token === openClawCheckToken.value) {
           deps.sysState.openclaw = status
+          if (status.installed && verState.versions.length === 0) {
+            loadVersions()
+          }
         }
       } catch (e) { /* 忽略错误 */ }
       if (token === openClawCheckToken.value) {
         checkingClaw.value = false
       }
+    }
+
+    async function loadVersions() {
+      if (!window.go) return
+      verState.loading = true
+      try {
+        const res = await window.go.main.App.GetAvailableVersions()
+        if (res && res.ok) {
+          verState.ok = true
+          verState.latest = res.latest
+          let vers = res.versions || []
+          vers.reverse()
+          verState.versions = vers
+          verState.selectedVersion = deps.sysState.openclaw.version || res.latest
+        } else {
+          verState.ok = false
+          verState.error = res?.error || 'Unknown Error'
+        }
+      } catch (err) {
+        verState.ok = false
+        verState.error = err.message || err
+      }
+      verState.loading = false
     }
 
     async function runWsl() {
@@ -407,6 +497,11 @@
           pushLog(line, 'dim')
         })
 
+        // 支持 update:log (利用同一个面板)
+        window.runtime.EventsOn("update:log", (line) => {
+          pushLog(line, 'info')
+        })
+
         unsubDone = window.runtime.EventsOn("install:done", async (res) => {
           isInstallingClaw.value = false
           if (res.ok) {
@@ -467,8 +562,49 @@
       if (unsubWslDone) unsubWslDone()
       if (unsubRunWslPhase) unsubRunWslPhase()
       if (unsubRunWslDone) unsubRunWslDone()
+      if (window.runtime) window.runtime.EventsOff("update:log")
     })
 
-    return { showRestartModal, loadingWsl, wslAction, wslPhase, checkingClaw, isInstallingClaw, isUninstallingClaw, isInstallingDistro, wslInstallStatus, wslDownloadProgress, clawLogs, showOpenClawReady, openClawStatusText, installWsl, installUbuntu, runWsl, stopWsl, checkOpenClaw, installOpenClaw, uninstallOpenClaw, t, currentLang, setLang }
+    async function installTargetVersion(targetObjVersion, actionType = 'upgrade') {
+      if (!window.go) return
+      isUpdatingVersion.value = true
+      // 共用安装日志区域
+      isInstallingClaw.value = true
+      clawLogs.value = []
+      
+      const startKey = actionType === 'rollback' ? 'log.ver_rollback_start' : 'log.ver_upgrade_start'
+      const okKey = actionType === 'rollback' ? 'log.ver_rollback_ok' : 'log.ver_upgrade_ok'
+      const toastKey = actionType === 'rollback' ? 'toast.ver_rollback_ok' : 'toast.ver_upgrade_ok'
+      
+      pushLog(t(startKey) + targetObjVersion, 'info')
+
+      try {
+        const res = await window.go.main.App.InstallVersion(targetObjVersion)
+        if (res.ok) {
+          pushLog(t(okKey), 'success')
+          deps.toast(t(toastKey) + targetObjVersion, 'success')
+          deps.sysState.openclaw.version = targetObjVersion
+          checkOpenClaw() // 刷新底层状态
+        } else {
+          pushLog('>>> ✗ 更新失败：' + res.error, 'error')
+          deps.toast('操作失败: ' + res.error, 'error')
+        }
+      } catch (e) {
+        pushLog('>>> ✗ 请求异常：' + e, 'error')
+        deps.toast('安装请求失败', 'error')
+      }
+      isUpdatingVersion.value = false
+      isInstallingClaw.value = false
+    }
+
+    function upgradeToLatest() {
+      installTargetVersion(verState.latest, 'upgrade')
+    }
+
+    function rollbackVersion() {
+      installTargetVersion(verState.selectedVersion, 'rollback')
+    }
+
+    return { showRestartModal, loadingWsl, wslAction, wslPhase, checkingClaw, isInstallingClaw, isUninstallingClaw, isInstallingDistro, wslInstallStatus, wslDownloadProgress, clawLogs, showOpenClawReady, openClawStatusText, installWsl, installUbuntu, runWsl, stopWsl, checkOpenClaw, installOpenClaw, uninstallOpenClaw, t, currentLang, setLang, verState, isUpdatingVersion, loadVersions, upgradeToLatest, rollbackVersion }
   }
 </script>

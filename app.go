@@ -112,12 +112,32 @@ func (a *App) RestartGateway() map[string]interface{} {
 	return a.openclawMgr.RestartGateway()
 }
 
+func (a *App) StreamGatewayLogs() {
+	a.openclawMgr.StreamGatewayLogs()
+}
+
+func (a *App) StopGatewayLogs() map[string]interface{} {
+	err := openclaw.StopGatewayLogStream()
+	if err != nil {
+		return map[string]interface{}{"ok": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"ok": true}
+}
+
 func (a *App) InstallOpenClaw() {
 	a.openclawMgr.InstallOpenClaw()
 }
 
 func (a *App) UninstallOpenClaw() {
 	a.openclawMgr.UninstallOpenClaw()
+}
+
+func (a *App) GetAvailableVersions() map[string]interface{} {
+	return a.openclawMgr.GetAvailableVersions()
+}
+
+func (a *App) InstallVersion(targetVersion string) map[string]interface{} {
+	return a.openclawMgr.InstallVersion(targetVersion)
 }
 
 // Dashboard 代理方法。

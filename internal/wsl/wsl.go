@@ -155,35 +155,9 @@ func (m *Manager) ProbeForInitialLoad() (WSLInfo, bool) {
 		}, false
 	}
 
-	// 有会话在运行，执行详细检查
-	cmd := exec.Command("wsl", "--status")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	_, err = cmd.CombinedOutput()
-
-	installed := true
-	if err != nil {
-		cmd2 := exec.Command("wsl", "--version")
-		cmd2.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		_, err = cmd2.CombinedOutput()
-		if err != nil {
-			installed = false
-		}
-	}
-
-	if !installed {
-		return WSLInfo{
-			Installed:       false,
-			DistroInstalled: false,
-			Version:         "WSL 未安装或未启用",
-		}, false
-	}
-
-	// 检查发行版安装情况
-	cmdQuiet := exec.Command("wsl", "--list", "--quiet")
-	cmdQuiet.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	outQuiet, _ := cmdQuiet.CombinedOutput()
-	cleanQuiet := strings.ReplaceAll(string(outQuiet), "\x00", "")
-	distroInstalled := strings.Contains(strings.ToLower(cleanQuiet), "ubuntu")
+	// 有会话在运行 → WSL 必然已安装，跳过冗余的 wsl --status / --version 调用。
+	// 直接从 running list 输出中判断是否有 Ubuntu 发行版，避免额外的 wsl --list --quiet 调用。
+	distroInstalled := strings.Contains(strings.ToLower(cleanRun), "ubuntu")
 
 	statusMsg := "系统已安装并启用 WSL"
 	if !distroInstalled {

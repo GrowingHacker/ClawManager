@@ -26,6 +26,10 @@ export function EnablePlugin(arg1) {
   return window['go']['main']['App']['EnablePlugin'](arg1);
 }
 
+export function GetAvailableVersions() {
+  return window['go']['main']['App']['GetAvailableVersions']();
+}
+
 export function GetFeishuConfig() {
   return window['go']['main']['App']['GetFeishuConfig']();
 }
@@ -70,6 +74,10 @@ export function InstallUbuntu() {
   return window['go']['main']['App']['InstallUbuntu']();
 }
 
+export function InstallVersion(arg1) {
+  return window['go']['main']['App']['InstallVersion'](arg1);
+}
+
 export function InstallWSL() {
   return window['go']['main']['App']['InstallWSL']();
 }
@@ -106,8 +114,16 @@ export function StopGateway() {
   return window['go']['main']['App']['StopGateway']();
 }
 
+export function StopGatewayLogs() {
+  return window['go']['main']['App']['StopGatewayLogs']();
+}
+
 export function StopWSL() {
   return window['go']['main']['App']['StopWSL']();
+}
+
+export function StreamGatewayLogs() {
+  return window['go']['main']['App']['StreamGatewayLogs']();
 }
 
 export function ToggleFeishuPlugin(arg1) {

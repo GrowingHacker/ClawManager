@@ -4,8 +4,11 @@ import (
 	"ClawManager/internal/wsl"
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -20,7 +23,7 @@ const gatewayListenPort = 18789
 // hostListenGateway 从 Windows 侧探测本机 Gateway 端口（与 Dashboard 一致，依赖 WSL2 localhost 转发）。
 func hostListenGateway() bool {
 	addr := fmt.Sprintf("127.0.0.1:%d", gatewayListenPort)
-	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+	conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
 	if err != nil {
 		return false
 	}
@@ -199,33 +202,49 @@ func (m *Manager) CheckOpenClawAssumingActiveSession() wsl.OpenClawStatus {
 }
 
 func (m *Manager) checkOpenClawCore() wsl.OpenClawStatus {
-	out, err := wslBashFast("command -v openclaw || which openclaw || ls /home/honphie/.npm-global/bin/openclaw 2>/dev/null")
+	// 合并 3 个串行 WSL 调用为 1 个，用分隔符区分各段输出
+	combinedCmd := `BIN=$(command -v openclaw || which openclaw 2>/dev/null || ls /home/honphie/.npm-global/bin/openclaw 2>/dev/null) || exit 1; ` +
+		`echo "__PATH__:$BIN"; ` +
+		`echo "__VER__:$($BIN --version 2>/dev/null)"; ` +
+		`echo "__STATUS_BEGIN__"; ` +
+		`/usr/local/bin/openclaw gateway status 2>&1; ` +
+		`echo "__STATUS_END__"`
+
+	out, err := wslBashFast(combinedCmd)
 	if err != nil || out == "" {
 		return wsl.OpenClawStatus{Installed: false}
 	}
 
-	path := out
-	if !strings.HasPrefix(path, "/") {
-		path = "openclaw"
-	}
-
-	versionOut, _ := wslBashFast(path + " --version 2>/dev/null")
+	// 解析合并输出
 	version := "Unknown"
-	if versionOut != "" {
-		cleanVersion := stripANSI(strings.TrimSpace(versionOut))
-		var printable strings.Builder
-		for _, r := range cleanVersion {
-			if r >= 32 && r < 127 {
-				printable.WriteRune(r)
+	var statusOut string
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "__VER__:") {
+			raw := strings.TrimPrefix(line, "__VER__:")
+			cleanVersion := stripANSI(strings.TrimSpace(raw))
+			var printable strings.Builder
+			for _, r := range cleanVersion {
+				if r >= 32 && r < 127 {
+					printable.WriteRune(r)
+				}
+			}
+			if v := printable.String(); v != "" {
+				version = v
 			}
 		}
-		version = printable.String()
-		if version == "" {
-			version = "Unknown"
+	}
+
+	if idx := strings.Index(out, "__STATUS_BEGIN__"); idx >= 0 {
+		tail := out[idx+len("__STATUS_BEGIN__"):]
+		if end := strings.Index(tail, "__STATUS_END__"); end >= 0 {
+			statusOut = strings.TrimSpace(tail[:end])
+		} else {
+			statusOut = strings.TrimSpace(tail)
 		}
 	}
 
-	statusOut, _ := wslBashFast("/usr/local/bin/openclaw gateway status 2>&1")
 	hostPortOpen := hostListenGateway()
 	isRunning := inferGatewayRunningFromStatusOutput(true, statusOut, hostPortOpen)
 
@@ -463,6 +482,83 @@ func (m *Manager) RestartGateway() map[string]interface{} {
 	}
 }
 
+func (m *Manager) StreamGatewayLogs() {
+	logFile := "/tmp/openclaw/openclaw-$(date +%Y-%m-%d).log"
+	cmd := exec.Command("wsl", "-e", "bash", "-c", "tail -f "+logFile)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		runtime.EventsEmit(m.ctx, "gateway:log", map[string]interface{}{
+			"level": "error",
+			"text":  "Failed to create pipe: " + err.Error(),
+		})
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		runtime.EventsEmit(m.ctx, "gateway:log", map[string]interface{}{
+			"level": "error",
+			"text":  "Failed to start tail: " + err.Error(),
+		})
+		return
+	}
+
+	re := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+	reader := bufio.NewReader(stdout)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if line != "" {
+				cleanLine := re.ReplaceAllString(line, "")
+				cleanLine = strings.TrimSpace(cleanLine)
+				if cleanLine != "" {
+					level := detectLogLevel(cleanLine)
+					runtime.EventsEmit(m.ctx, "gateway:log", map[string]interface{}{
+						"level": level,
+						"text":  cleanLine,
+					})
+				}
+			}
+			break
+		}
+
+		cleanLine := re.ReplaceAllString(line, "")
+		cleanLine = strings.TrimSpace(cleanLine)
+		if cleanLine != "" {
+			level := detectLogLevel(cleanLine)
+			runtime.EventsEmit(m.ctx, "gateway:log", map[string]interface{}{
+				"level": level,
+				"text":  cleanLine,
+			})
+		}
+	}
+
+	cmd.Wait()
+	runtime.EventsEmit(m.ctx, "gateway:log", map[string]interface{}{
+		"level": "system",
+		"text":  "Log stream ended",
+	})
+}
+
+func detectLogLevel(text string) string {
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "error") || strings.Contains(lower, "err]") || strings.Contains(lower, "failed") {
+		return "error"
+	}
+	if strings.Contains(lower, "warn") || strings.Contains(lower, "warning") {
+		return "warn"
+	}
+	if strings.Contains(lower, "debug") || strings.Contains(lower, "trace") {
+		return "debug"
+	}
+	return "info"
+}
+
+func StopGatewayLogStream() error {
+	return exec.Command("wsl", "-e", "bash", "-c", "pkill -f 'tail -f /tmp/openclaw' 2>/dev/null || true").Run()
+}
+
 // InstallOpenClaw 执行 4 步 openclaw 安装流程，并触发进度事件
 func (m *Manager) InstallOpenClaw() {
 	// 生成固定格式的token，用于安装过程中的配置
@@ -488,7 +584,7 @@ func (m *Manager) InstallOpenClaw() {
 			// 注入 SHARP_BINARY_HOST 镜像，解决 sharp 库下载 libvips 慢的问题
 			// 使用 sudo -E 确保环境变量能透传给 npm
 			cmd: `sudo -E SHARP_BINARY_HOST=https://npmmirror.com/mirrors/sharp-libvips \
-		  npm install -g openclaw --registry=https://registry.npmmirror.com --progress=true --loglevel=info`,
+		  npm install -g openclaw --registry=https://registry.npmmirror.com --no-audit --no-fund --loglevel=info`,
 		},
 		{
 			label: "自动配置网关参数",
@@ -630,4 +726,110 @@ func (m *Manager) UninstallOpenClaw() {
 	runtime.EventsEmit(m.ctx, "install:done", map[string]interface{}{
 		"ok": true,
 	})
+}
+
+// GetAvailableVersions 获取远程可用的版本信息
+func (m *Manager) GetAvailableVersions() map[string]interface{} {
+	resp, err := http.Get("https://registry.npmmirror.com/openclaw")
+	if err != nil {
+		return map[string]interface{}{"ok": false, "error": "获取版本失败: " + err.Error()}
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return map[string]interface{}{"ok": false, "error": "解析版本数据失败: " + err.Error()}
+	}
+
+	var result struct {
+		DistTags map[string]string      `json:"dist-tags"`
+		Versions map[string]interface{} `json:"versions"`
+		Time     map[string]string      `json:"time"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return map[string]interface{}{"ok": false, "error": "解析 JSON 失败: " + err.Error()}
+	}
+
+	var versions []string
+	for v := range result.Versions {
+		versions = append(versions, v)
+	}
+
+	return map[string]interface{}{
+		"ok":       true,
+		"latest":   result.DistTags["latest"],
+		"versions": versions,
+		"times":    result.Time,
+	}
+}
+
+// InstallVersion 执行特定版本的 OpenClaw 一键覆盖安装
+func (m *Manager) InstallVersion(targetVersion string) map[string]interface{} {
+	steps := []struct {
+		label string
+		cmd   string
+	}{
+		{
+			label: "准备环境并清理旧的系统服务",
+			cmd:   `openclaw gateway stop 2>/dev/null || true`,
+		},
+		{
+			label: fmt.Sprintf("下载并安装 OpenClaw %s", targetVersion),
+			cmd:   fmt.Sprintf(`sudo -E SHARP_BINARY_HOST=https://npmmirror.com/mirrors/sharp-libvips npm install -g openclaw@%s --registry=https://registry.npmmirror.com --no-audit --no-fund --loglevel=info`, targetVersion),
+		},
+	}
+
+	total := len(steps)
+	for i, step := range steps {
+		runtime.EventsEmit(m.ctx, "update:step", InstallStep{
+			Index:  i,
+			Total:  total,
+			Label:  step.label,
+			Status: "running",
+		})
+
+		err := wslBashStream(step.cmd, func(line string) {
+			runtime.EventsEmit(m.ctx, "update:log", line)
+		})
+
+		time.Sleep(100 * time.Millisecond)
+
+		if err != nil && i == 1 { // 步骤 1 (安装) 是关键
+			runtime.EventsEmit(m.ctx, "update:step", InstallStep{
+				Index:  i,
+				Total:  total,
+				Label:  step.label,
+				Status: "error",
+			})
+			return map[string]interface{}{
+				"ok":    false,
+				"error": "执行失败，请检查控制台获取详细日志: " + err.Error(),
+			}
+		}
+
+		runtime.EventsEmit(m.ctx, "update:step", InstallStep{
+			Index:  i,
+			Total:  total,
+			Label:  step.label,
+			Status: "done",
+		})
+	}
+
+	// 尝试重启网关
+	runtime.EventsEmit(m.ctx, "update:log", "正在启动 Gateway 服务...")
+	startResult := m.RestartGateway()
+	if startResult["ok"] == true {
+		runtime.EventsEmit(m.ctx, "update:log", "Gateway 服务已成功启动")
+	} else {
+		// Restart 失败可能因为服务先前根本没在跑, 这里可以退而求其次尝试 Start
+		startResultInner := m.StartGateway()
+		if startResultInner["ok"] == true {
+			runtime.EventsEmit(m.ctx, "update:log", "Gateway 服务已成功启动")
+		} else {
+			runtime.EventsEmit(m.ctx, "update:log", "自动启动 Gateway 遇到了问题。您可以后续手动启动。")
+		}
+	}
+
+	return map[string]interface{}{"ok": true}
 }
